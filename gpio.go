@@ -43,3 +43,11 @@ func (g *GPIO) Execute(states []bool) error {
 
 	return nil
 }
+
+func (g *GPIO) SetAll(state bool) error {
+	states := make([]bool, len(g.pins))
+	for i := range states {
+		states[i] = state
+	}
+	return g.Execute(states)
+}

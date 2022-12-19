@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog/log"
 )
 
 func PanicOnError(err error) {
@@ -14,8 +15,12 @@ func PanicOnError(err error) {
 	}
 }
 
+func init() {
+	InitializeLogger()
+}
+
 func main() {
-	fmt.Println("Welcome to Gomas!")
+	log.Print("Welcome to Gomas!")
 
 	// show, err := LoadShow("christmas_eve_sarajevo")
 	// PanicOnError(err)
@@ -37,7 +42,7 @@ func main() {
 	// shows, err := ListShows()
 	// spew.Dump(shows, err)
 
-	player.PlayAll()
+	// player.PlayAll()
 
 	StartServer(player)
 }
@@ -100,6 +105,11 @@ func StartServer(player *Player) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	r.Get("/playall", func(w http.ResponseWriter, r *http.Request) {
+		player.PlayAll()
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	r.Get("/static", func(w http.ResponseWriter, r *http.Request) {
 		player.Stop()
 		w.WriteHeader(http.StatusNoContent)
@@ -111,8 +121,6 @@ func StartServer(player *Player) error {
 	})
 
 	address := fmt.Sprintf("%s:%s", Host, Port)
-
-	fmt.Printf("listening on %s\n", address)
-
+	log.Info().Str("address", address).Msg("launching server")
 	return http.ListenAndServe(address, r)
 }

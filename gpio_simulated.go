@@ -13,3 +13,7 @@ func NewGPIO() (*GPIO, error) {
 func (g *GPIO) Execute(states []bool) error {
 	return nil
 }
+
+func (g *GPIO) SetAll(state bool) error {
+	return nil
+}

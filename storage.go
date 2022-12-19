@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type LegacyShow struct {
@@ -56,10 +56,10 @@ func SetDataDir() {
 	provided := os.Getenv("GOMAS_DATA_DIR")
 	if provided == "" {
 		DataDir, _ = filepath.Abs("./data")
-		fmt.Printf("using default data directory '%s'\n", DataDir)
+		log.Info().Str("path", DataDir).Msg("using default data directory")
 	} else {
 		DataDir, _ = filepath.Abs(provided)
-		fmt.Printf("using provided data directory '%s'\n", DataDir)
+		log.Info().Str("path", DataDir).Msg("using provded data directory")
 	}
 }
 
@@ -291,24 +291,24 @@ func LoadFlatKeyframes(id string) ([]*FlatKeyframe, error) {
 
 	// Debug: dump keyframes to file
 	// Create a file for writing
-	f, _ := os.Create("./debug.txt")
-	// Create a writer
-	w := bufio.NewWriter(f)
-	for _, kf := range flatKeyframes {
-		stateStrings := make([]string, 0, len(kf.States))
-		for _, s := range kf.States {
-			v := "0"
-			if s {
-				v = "1"
-			}
-			stateStrings = append(stateStrings, v)
-		}
-		line := fmt.Sprintf("%f,%s\n", kf.Time, strings.Join(stateStrings, ","))
-		w.WriteString(line)
-	}
-	// Very important to invoke after writing a large number of lines
-	w.Flush()
-	f.Close()
+	// f, _ := os.Create("./debug.txt")
+	// // Create a writer
+	// w := bufio.NewWriter(f)
+	// for _, kf := range flatKeyframes {
+	// 	stateStrings := make([]string, 0, len(kf.States))
+	// 	for _, s := range kf.States {
+	// 		v := "0"
+	// 		if s {
+	// 			v = "1"
+	// 		}
+	// 		stateStrings = append(stateStrings, v)
+	// 	}
+	// 	line := fmt.Sprintf("%f,%s\n", kf.Time, strings.Join(stateStrings, ","))
+	// 	w.WriteString(line)
+	// }
+	// // Very important to invoke after writing a large number of lines
+	// w.Flush()
+	// f.Close()
 
 	return flatKeyframes, nil
 }

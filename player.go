@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,7 +11,15 @@ import (
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
+
+var plog zerolog.Logger
+
+func init() {
+	plog = log.With().Str("component", "player").Logger()
+}
 
 type PlayerCommand string
 
@@ -53,7 +62,14 @@ type Player struct {
 func NewPlayer() *Player {
 	state := &ExternalPlayerState{}
 	ch := make(chan PlayerMessage)
-	go workerLoop(ch, state)
+	// go workerLoop(ch, state)
+	go func() {
+		pi, err := newPlayerInternals()
+		if err != nil {
+			panic(err)
+		}
+		pi.run(ch)
+	}()
 
 	return &Player{
 		commandChannel: ch,
@@ -107,7 +123,7 @@ func (kp *KeyframePlayer) Load(id string) error {
 		return err
 	}
 
-	fmt.Printf("loaded %d keyframes\n", len(kfs))
+	plog.Debug().Int("length", len(kfs)).Msg("loaded keyframes")
 
 	kp.frames = kfs
 	return nil
@@ -193,13 +209,6 @@ func (ap *AudioPlayer) Play(path string) (time.Time, error) {
 
 	speaker.Init(format.SampleRate, format.SampleRate.N(speakerBufferSize))
 
-	// Buffer?
-	// buffer := beep.NewBuffer(format)
-	// buffer.Append(streamer)
-	// streamer.Close()
-	// s2 := buffer.Streamer(0, buffer.Len())
-	// ap.streamer = s2
-
 	ap.streamer = streamer
 
 	done := make(chan bool)
@@ -209,13 +218,6 @@ func (ap *AudioPlayer) Play(path string) (time.Time, error) {
 
 	return time.Now(), nil
 }
-
-// func (ap *AudioPlayer) CurrentTime() time.Duration {
-// 	speaker.Lock()
-// 	pos := ap.format.SampleRate.D(ap.streamer.Position())
-// 	speaker.Unlock()
-// 	return pos
-// }
 
 //////////////////////////////////
 // State machine
@@ -230,207 +232,181 @@ const (
 
 const restPeriod = time.Second * 3
 
-func workerLoop(channel chan PlayerMessage, externalState *ExternalPlayerState) {
-	var state PlayerState = StateIdle
-	var startTime time.Time
+type playerInternals struct {
+	running   bool
+	state     PlayerState
+	startTime time.Time
+	queue     CircularList[string]
 
-	var queue []string
-	queueIndex := 0
+	audioPlayer    *AudioPlayer
+	keyframePlayer *KeyframePlayer
+}
+
+func newPlayerInternals() (*playerInternals, error) {
 
 	g, err := NewGPIO()
 	if err != nil {
-		fmt.Printf("FATAL GPIO ERROR: %e\n", err)
+		return nil, err
 	}
 
-	audioPlayer := NewAudioPlayer()
-	keyframePlayer := &KeyframePlayer{gpio: g}
+	return &playerInternals{
+		state:          StateIdle,
+		audioPlayer:    NewAudioPlayer(),
+		keyframePlayer: &KeyframePlayer{gpio: g},
+	}, nil
+}
 
-	// Predeclare
-	// var err error
-	var enterIdle func()
-
-	handleError := func(format string, a ...any) {
-		fmt.Printf(format, a...)
-		enterIdle()
+func (pi *playerInternals) run(channel chan PlayerMessage) {
+	if pi.running {
+		plog.Fatal().Msg("cannot call run on playerInternals more than once")
 	}
+	pi.running = true
+	plog.Print("running player loop")
 
-	loadShow := func(id string) {
-		state = StatePlaying
-		fmt.Printf("loading show: %s\n", id)
-		externalState.Set(fmt.Sprintf("Now playing %s", id))
-
-		err := keyframePlayer.Load(id)
-		if err != nil {
-			handleError("FATAL ERROR when loading keyframes: %e\n", err)
-			return
-		}
-
-		audioPath, err := ShowAudioPath(id)
-		if err != nil {
-			handleError("FATAL ERROR when getting audio path: %e\n", err)
-			return
-		}
-
-		startTime, err = audioPlayer.Play(audioPath)
-		if err != nil {
-			handleError("FATAL ERROR when playing audio: %e\n", err)
-			return
-		}
-	}
-
-	playAllShows := func() {
-		shows, err := ListShows()
-		if err != nil {
-			handleError("failed to play all: %e\n", err)
-			return
-		}
-
-		var ids []string
-		for _, show := range shows {
-			if show.HasAudio {
-				ids = append(ids, show.ID)
-			}
-		}
-
-		if len(ids) == 0 {
-			handleError("cannot play all, no playable shows found")
-			return
-		}
-
-		queue = ids
-		queueIndex = 0
-		loadShow(queue[0])
-	}
-
-	clearCurrentShow := func() {
-		audioPlayer.Stop()
-		keyframePlayer.Unload()
-	}
-
-	clearQueue := func() {
-		queue = nil
-		queueIndex = 0
-	}
-
-	nextQueueIndex := func() int {
-		nqi := queueIndex + 1
-		if nqi >= len(queue) {
-			nqi = 0
-		}
-		return nqi
-	}
-
-	nextUp := func() string {
-		if len(queue) == 0 {
-			return ""
-		}
-		return queue[nextQueueIndex()]
-	}
-
-	advanceQueue := func() {
-		queueIndex = nextQueueIndex()
-	}
-
-	loadNextShow := func() {
-		clearCurrentShow()
-		if len(queue) > 0 {
-			advanceQueue()
-			loadShow(queue[queueIndex])
-		}
-	}
-
-	handleShowEnd := func() {
-		clearCurrentShow()
-
-		if len(queue) > 1 {
-			fmt.Printf("resting for %s, next up: %s\n", restPeriod, nextUp())
-			state = StateResting
-			startTime = time.Now()
-			externalState.Set(fmt.Sprintf("Next up: %s", nextUp()))
-
-			// If there's more than one item in the queue we are doing a playlist
-			// advanceQueue()
-			// loadShow(queue[queueIndex])
-		} else {
-			// No more items in queue, stop
-			enterIdle()
-		}
-	}
-
-	enterIdle = func() {
-		clearCurrentShow()
-		clearQueue()
-		state = StateIdle
-	}
-
-	for true {
-		// fmt.Printf("Current state: %s\n", state)
-
-		// Handle state change
+	for {
+		// Handle incoming message
 		select {
 		case msg := <-channel:
-			fmt.Printf("player received message: %s\n", msg.Command)
-			switch command := msg.Command; command {
-			// Playing
+			plog.Debug().
+				Str("command", string(msg.Command)).
+				Str("value", msg.Value).
+				Msg("received message")
+
+			switch msg.Command {
 			case CommandPlay:
-				// One might be playing, stop it
-				clearCurrentShow()
-				clearQueue()
-
-				state = StatePlaying
-				queue = append(queue, msg.Value)
-
-				loadShow(msg.Value)
+				pi.clearCurrentShow()
+				pi.clearQueue()
+				pi.handleError(pi.playShow(msg.Value))
 
 			case CommandPlayAll:
-				clearCurrentShow()
-				clearQueue()
+				pi.clearCurrentShow()
+				pi.clearQueue()
+				pi.handleError(pi.playAllShows())
 
-				state = StatePlaying
-				playAllShows()
-
-			// Stopping
 			case CommandStop:
-				enterIdle()
+				pi.enterIdle()
 
 			case CommandNext:
-				loadNextShow()
-
-			case "kill":
-				fmt.Println("Killing player thread")
-				clearCurrentShow()
-				return
-
+				pi.handleError(pi.playNextShow())
 			}
 		default:
 			// Do nothing
 		}
 
-		// Do unit of work
-		// switch state {...}
-		switch state {
+		// Handle state change
+		switch pi.state {
 		case StatePlaying:
-			t := time.Since(startTime)
+			t := time.Since(pi.startTime)
 			// t := audioPlayer.CurrentTime()
-			done, err := keyframePlayer.Execute(t)
+			done, err := pi.keyframePlayer.Execute(t)
 			if err != nil {
-				fmt.Printf("FATAL ERROR EXECUTING KEYFRAME: %e\n", err)
-			}
-			if done {
-				fmt.Println("done signal received, ending current show")
-				handleShowEnd()
+				pi.handleError(err)
+			} else if done {
+				plog.Print("done signal received, ending current show")
+				pi.handleShowEnd()
 			}
 
 		case StateResting:
-			t := time.Since(startTime)
+			t := time.Since(pi.startTime)
 			if t >= restPeriod {
-				state = StatePlaying
-				loadNextShow()
+				pi.playNextShow()
 			}
-
-			// fmt.Printf("At song time: %v\n", t)
 		}
 
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func (pi *playerInternals) clearCurrentShow() {
+	pi.audioPlayer.Stop()
+	pi.keyframePlayer.Unload()
+}
+
+func (pi *playerInternals) clearQueue() {
+	pi.queue.Clear()
+}
+
+func (pi *playerInternals) enterIdle() {
+	pi.clearCurrentShow()
+	pi.clearQueue()
+	pi.state = StateIdle
+}
+
+func (pi *playerInternals) playShow(id string) error {
+	pi.state = StatePlaying
+	plog.Info().Str("id", id).Msg("playing show")
+
+	err := pi.keyframePlayer.Load(id)
+	if err != nil {
+		return err
+	}
+
+	audioPath, err := ShowAudioPath(id)
+	if err != nil {
+		return err
+	}
+
+	pi.startTime, err = pi.audioPlayer.Play(audioPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (pi *playerInternals) playNextShow() error {
+	pi.clearCurrentShow()
+	if pi.queue.Length() > 1 {
+		pi.queue.Advance()
+		pi.playShow(pi.queue.Current())
+	} else {
+		pi.enterIdle()
+	}
+	return nil
+}
+
+func (pi *playerInternals) playAllShows() error {
+	shows, err := ListShows()
+	if err != nil {
+		return fmt.Errorf("cannot play all: %e", err)
+	}
+
+	var ids []string
+	for _, show := range shows {
+		if show.HasAudio {
+			ids = append(ids, show.ID)
+		}
+	}
+
+	if len(ids) == 0 {
+		return errors.New("cannot play all: no playable shows found")
+	}
+
+	pi.queue.Replace(ids)
+	pi.playShow(pi.queue.Current())
+	return nil
+}
+
+func (pi *playerInternals) handleShowEnd() {
+	pi.clearCurrentShow()
+
+	if pi.queue.Length() > 1 {
+		plog.Info().
+			Str("period", restPeriod.String()).
+			Str("next_up", pi.queue.PeekNext()).
+			Msg("resting")
+
+		pi.state = StateResting
+		pi.startTime = time.Now()
+	} else {
+		// No more items in queue, stop
+		pi.enterIdle()
+	}
+}
+
+func (pi *playerInternals) handleError(err error) {
+	if err != nil {
+		plog.Err(err).Msg("player error")
+		pi.enterIdle()
 	}
 }

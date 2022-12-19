@@ -6,7 +6,7 @@ GET http://localhost:1225/play/christmas_eve_sarajevo
 
 ###
 
-GET http://localhost:1225/play/asdf
+GET http://localhost:1225/playall
 
 ###
 
