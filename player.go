@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -152,15 +151,6 @@ func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
 		if err := kp.gpio.Execute(current.States); err != nil {
 			return false, err
 		}
-		var strs []string
-		for _, n := range current.States {
-			if n {
-				strs = append(strs, "#")
-			} else {
-				strs = append(strs, "_")
-			}
-		}
-		fmt.Println(strings.Join(strs, ""))
 		kp.index += 1
 	}
 
