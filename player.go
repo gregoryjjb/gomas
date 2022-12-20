@@ -12,6 +12,8 @@ import (
 	"github.com/faiface/beep/speaker"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"gregoryjjb/gomas/gpio"
 )
 
 var plog zerolog.Logger
@@ -112,7 +114,6 @@ func (p *Player) Next() {
 type KeyframePlayer struct {
 	frames []*FlatKeyframe
 	index  int64
-	gpio   *GPIO
 }
 
 func (kp *KeyframePlayer) Load(id string) error {
@@ -148,7 +149,7 @@ func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
 	current := kp.frames[kp.index]
 
 	if current.Time <= secs {
-		if err := kp.gpio.Execute(current.States); err != nil {
+		if err := gpio.Execute(current.States); err != nil {
 			return false, err
 		}
 		kp.index += 1
@@ -233,20 +234,15 @@ type playerInternals struct {
 }
 
 func newPlayerInternals() (*playerInternals, error) {
-
-	g, err := NewGPIO()
-	if err != nil {
-		return nil, err
-	}
-
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    NewAudioPlayer(),
-		keyframePlayer: &KeyframePlayer{gpio: g},
+		keyframePlayer: &KeyframePlayer{},
 	}, nil
 }
 
 func (pi *playerInternals) run(channel chan PlayerMessage) {
+	// time.Sleep(time.Millisecond * 10)
 	if pi.running {
 		plog.Fatal().Msg("cannot call run on playerInternals more than once")
 	}

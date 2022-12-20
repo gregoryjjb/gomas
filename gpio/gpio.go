@@ -1,21 +1,19 @@
 //go:build !nogpio
 
-package main
+package gpio
 
 import "github.com/stianeikeland/go-rpio/v4"
 
 var pinout = []int{4, 17, 27, 22, 5, 6, 13, 26}
 
-type GPIO struct {
-	pins []rpio.Pin
-}
+var pins []rpio.Pin
 
-func NewGPIO() (*GPIO, error) {
+func Init() error {
 	if err := rpio.Open(); err != nil {
-		return nil, err
+		return err
 	}
 
-	pins := make([]rpio.Pin, 0, len(pinout))
+	pins = make([]rpio.Pin, 0, len(pinout))
 	for _, p := range pinout {
 		pin := rpio.Pin(p)
 		pin.Output()
@@ -23,31 +21,33 @@ func NewGPIO() (*GPIO, error) {
 		pins = append(pins, pin)
 	}
 
-	return &GPIO{
-		pins: pins,
-	}, nil
+	return nil
 }
 
-func (g *GPIO) Execute(states []bool) error {
+func Close() error {
+	return rpio.Close()
+}
+
+func Execute(states []bool) error {
 	for i, state := range states {
-		if i >= len(g.pins) {
+		if i >= len(pins) {
 			break
 		}
 
 		if state {
-			g.pins[i].High()
+			pins[i].High()
 		} else {
-			g.pins[i].Low()
+			pins[i].Low()
 		}
 	}
 
 	return nil
 }
 
-func (g *GPIO) SetAll(state bool) error {
-	states := make([]bool, len(g.pins))
+func SetAll(state bool) error {
+	states := make([]bool, len(pins))
 	for i := range states {
 		states[i] = state
 	}
-	return g.Execute(states)
+	return Execute(states)
 }

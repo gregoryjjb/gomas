@@ -11,4 +11,4 @@ func GetEnvOr(key string, fallback string) string {
 }
 
 var Port = GetEnvOr("PORT", "1225")
-var Host = GetEnvOr("HOST", "127.0.0.1")
+var Host = GetEnvOr("HOST", "")

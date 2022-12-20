@@ -1,19 +1,23 @@
 //go:build nogpio
 
-package main
+package gpio
 
 import "fmt"
 
-type GPIO struct {
+const prefix = "Simulated GPIO: "
+
+func Init() error {
+	fmt.Println(prefix, "initializing")
+	return nil
 }
 
-func NewGPIO() (*GPIO, error) {
-
-	return &GPIO{}, nil
+func Close() error {
+	fmt.Println(prefix, "closing")
+	return nil
 }
 
 func printStates(states []bool) {
-	str := "GPIO: "
+	str := prefix
 	for _, state := range states {
 		if state {
 			str += "#"
@@ -24,12 +28,12 @@ func printStates(states []bool) {
 	fmt.Println(str)
 }
 
-func (g *GPIO) Execute(states []bool) error {
+func Execute(states []bool) error {
 	printStates(states)
 	return nil
 }
 
-func (g *GPIO) SetAll(state bool) error {
+func SetAll(state bool) error {
 	states := make([]bool, 8)
 	for i := range states {
 		states[i] = state

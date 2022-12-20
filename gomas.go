@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
+
+	"gregoryjjb/gomas/gpio"
 )
 
 func PanicOnError(err error) {
@@ -22,27 +24,11 @@ func init() {
 func main() {
 	log.Print("Welcome to Gomas!")
 
-	// show, err := LoadShow("christmas_eve_sarajevo")
-	// PanicOnError(err)
-
-	// keyframes, err := LoadFlatKeyframes("christmas_eve_sarajevo")
-	// PanicOnError(err)
-	// spew.Dump(keyframes)
+	if err := gpio.Init(); err != nil {
+		log.Err(err).Msg("GPIO initialization failed")
+	}
 
 	player := NewPlayer()
-
-	// player.Play("wizards_in_winter_2")
-
-	// time.Sleep(time.Second * 2)
-
-	// player.Stop()
-
-	// time.Sleep(time.Hour)
-
-	// shows, err := ListShows()
-	// spew.Dump(shows, err)
-
-	// player.PlayAll()
 
 	StartServer(player)
 }
@@ -121,6 +107,6 @@ func StartServer(player *Player) error {
 	})
 
 	address := fmt.Sprintf("%s:%s", Host, Port)
-	log.Info().Str("address", address).Msg("launching server")
+	log.Info().Str("listen", address).Msg("launching server")
 	return http.ListenAndServe(address, r)
 }
