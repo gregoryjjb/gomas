@@ -4,14 +4,16 @@ package gpio
 
 import "github.com/stianeikeland/go-rpio/v4"
 
-var pinout = []int{4, 17, 27, 22, 5, 6, 13, 26}
+var pinout []int
 
 var pins []rpio.Pin
 
-func Init() error {
+func Init(providedPinout []int) error {
 	if err := rpio.Open(); err != nil {
 		return err
 	}
+
+	pinout = providedPinout
 
 	pins = make([]rpio.Pin, 0, len(pinout))
 	for _, p := range pinout {

@@ -6,7 +6,7 @@ import "fmt"
 
 const prefix = "Simulated GPIO: "
 
-func Init() error {
+func Init(providedPinout []int) error {
 	fmt.Println(prefix, "initializing")
 	return nil
 }

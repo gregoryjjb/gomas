@@ -114,6 +114,7 @@ func (p *Player) Next() {
 type KeyframePlayer struct {
 	frames []*FlatKeyframe
 	index  int64
+	bias   time.Duration
 }
 
 func (kp *KeyframePlayer) Load(id string) error {
@@ -133,16 +134,11 @@ const speakerBufferSize = time.Millisecond * 200
 
 // Returns true if done
 func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
-	// bias := speakerBufferSize.Seconds() - (time.Millisecond * 50).Seconds()
-	bias := 0.0
-	secs := duration.Seconds() - bias
+	// // bias := speakerBufferSize.Seconds() - (time.Millisecond * 50).Seconds()
+	// bias := 0.0
+	secs := (duration - kp.bias).Seconds()
 
 	if len(kp.frames) <= int(kp.index) {
-		return true, nil
-	}
-
-	// Hack, make each song short seconds for testing
-	if secs >= 5 {
 		return true, nil
 	}
 
@@ -234,10 +230,11 @@ type playerInternals struct {
 }
 
 func newPlayerInternals() (*playerInternals, error) {
+
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    NewAudioPlayer(),
-		keyframePlayer: &KeyframePlayer{},
+		keyframePlayer: &KeyframePlayer{ bias: time.Duration(GetConfig().Bias) },
 	}, nil
 }
 

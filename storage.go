@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/rs/zerolog/log"
 )
 
 type LegacyShow struct {
@@ -51,18 +49,6 @@ func (state *LegacyState) UnmarshalJSON(data []byte) error {
 
 var ErrNoAudioFile = errors.New("audio file does not exist")
 
-var DataDir string
-func SetDataDir() {
-	provided := os.Getenv("GOMAS_DATA_DIR")
-	if provided == "" {
-		DataDir, _ = filepath.Abs("./data")
-		log.Info().Str("path", DataDir).Msg("using default data directory")
-	} else {
-		DataDir, _ = filepath.Abs(provided)
-		log.Info().Str("path", DataDir).Msg("using provded data directory")
-	}
-}
-
 func ShowDir() string {
 	result, _ := filepath.Abs(filepath.Join(DataDir, "projects"))
 	return result
@@ -99,13 +85,6 @@ func FileExists(path string) (bool, error) {
 	}
 
 	return false, err
-}
-
-/////////
-// Init
-
-func init() {
-	SetDataDir()
 }
 
 //////////
