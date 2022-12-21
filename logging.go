@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/mattn/go-colorable"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -31,13 +34,30 @@ func colorize(s interface{}, c int, disabled bool) string {
 	return fmt.Sprintf("\x1b[%dm%v\x1b[0m", c, s)
 }
 
+type ThreadSafeWriter struct {
+	w io.Writer
+}
+
+var globalStdoutMutex sync.RWMutex
+
+// This is blocking but eh good enough to avoid overlapping logs
+func (tsw ThreadSafeWriter) Write(p []byte) (int, error) {
+	globalStdoutMutex.Lock()
+	n, err := tsw.w.Write(p)
+	globalStdoutMutex.Unlock()
+	return n, err
+}
+
+func NewThreadSafeWriter(w io.Writer) ThreadSafeWriter {
+	return ThreadSafeWriter{w: w}
+}
+
 func InitializeLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-
-	// output.FormatLevel = func(i interface{}) string {
-	// 	return strings.ToUpper(fmt.Sprintf("| %-6s|", i))
-	// }
+	output := zerolog.ConsoleWriter{
+		Out:        NewThreadSafeWriter(colorable.NewColorable(os.Stdout)),
+		TimeFormat: time.RFC3339,
+	}
 
 	noColor := false
 

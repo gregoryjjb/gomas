@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -58,9 +59,20 @@ func RespondJSON(w http.ResponseWriter, body any) {
 }
 
 func StartServer(player *Player) error {
+	indexTemplate, err := template.ParseFiles("www/index.html")
+	if err != nil {
+		return err
+	}
+
 	r := chi.NewRouter()
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		RespondText(w, "Merry Gomas")
+		shows, err := ListShows()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		indexTemplate.Execute(w, shows)
 	})
 
 	r.Get("/shows", func(w http.ResponseWriter, r *http.Request) {

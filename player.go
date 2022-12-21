@@ -242,7 +242,6 @@ func newPlayerInternals() (*playerInternals, error) {
 }
 
 func (pi *playerInternals) run(channel chan PlayerMessage) {
-	// time.Sleep(time.Millisecond * 10)
 	if pi.running {
 		plog.Fatal().Msg("cannot call run on playerInternals more than once")
 	}
@@ -299,7 +298,8 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 			}
 		}
 
-		time.Sleep(time.Millisecond)
+		delay := time.Second / time.Duration(FramesPerSecond)
+		time.Sleep(delay)
 	}
 }
 

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Show Controls</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 16px;
+      }
+
+      ul {
+        list-style-type: none;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      button {
+        font-size: 18px;
+        padding: 8px 12px;
+      }
+
+      .control-buttons {
+        display: flex;
+        flex-direction: row;
+        gap: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Show Controls</h1>
+    <div class="control-buttons">
+      <button onclick="playAll()">Play all</button>
+      <button onclick="stop()">Stop</button>
+      <button onclick="next()">Next</button>
+    </div>
+    <h2>Shows</h2>
+    <ul>
+      {{range .}}
+      <li>
+        <button onclick="playShow('{{.ID}}')">{{.ID}}</button>
+      </li>
+      {{end}}
+    </ul>
+    <script type="text/javascript">
+      const playShow = (id) => {
+        fetch(`/play/${id}`);
+      };
+
+      const playAll = () => {
+        fetch(`/playall`);
+      };
+
+      const stop = () => {
+        fetch("/static");
+      };
+
+      const next = () => {
+        fetch("/next");
+      };
+    </script>
+  </body>
+</html>

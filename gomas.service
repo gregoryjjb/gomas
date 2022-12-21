@@ -1,0 +1,7 @@
+[Unit]
+Description=Christmas lights
+
+[Service]
+Type=simple
+User={{.User}}
+ExecStart={{.BinaryPath}}
