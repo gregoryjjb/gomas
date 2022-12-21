@@ -1,0 +1,3 @@
+*.mp3
+!default.mp3
+lib/wavesurfer.js

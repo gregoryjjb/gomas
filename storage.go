@@ -154,6 +154,20 @@ func LoadShow(id string) (*LegacyShow, error) {
 	return &data, nil
 }
 
+func SaveShow(id string, show *LegacyShow) error {
+	showPath, err := filepath.Abs(filepath.Join(DataDir, "projects", JoinExtension(id, "json")))
+	if err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(showPath, os.O_CREATE, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return json.NewEncoder(file).Encode(show)
+}
+
 func ShowAudioPath(id string) (string, error) {
 	audioPath, err := filepath.Abs(filepath.Join(DataDir, "audio", JoinExtension(id, "mp3")))
 	if err != nil {

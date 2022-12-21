@@ -2,6 +2,10 @@ GET http://localhost:1225/shows
 
 ###
 
+GET http://localhost:1225/shows/christmas_eve_sarajevo
+
+###
+
 GET http://localhost:1225/play/christmas_eve_sarajevo
 
 ###
