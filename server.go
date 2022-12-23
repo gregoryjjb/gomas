@@ -4,11 +4,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
 )
 
@@ -65,16 +66,20 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-//go:embed www/index.html
-var indexTemplateEmbed string
 
 func StartServer(player *Player) error {
-	indexTemplate, err := template.New("index.html").Parse(indexTemplateEmbed)
+	// Ensure template parses correctly
+	_, err := GetIndexTemplate()
 	if err != nil {
 		return err
 	}
-
+	
 	r := chi.NewRouter()
+
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.NoCache)
+	r.Use(LoggerMiddleware(&log.Logger))
+
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		shows, err := ListShows()
 		if err != nil {
@@ -82,14 +87,27 @@ func StartServer(player *Player) error {
 			return
 		}
 
-		indexTemplate.Execute(w, shows)
+		tmpl, err := GetIndexTemplate()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		tmpl.Execute(w, shows)
 	})
 
 	// Cram the legacy show editor in
-	FileServer(r, "/editor", http.Dir("www/editor"))
+	FileServer(r, "/editor", GetEditorFS())
+
+	// For testing panics
+	r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+		panic("oh no what happened!")
+	})
+
+	api := chi.NewRouter()
 
 	// GET shows
-	r.Get("/shows", func(w http.ResponseWriter, r *http.Request) {
+	api.Get("/shows", func(w http.ResponseWriter, r *http.Request) {
 		shows, err := ListShows()
 		if err != nil {
 			RespondInternalServiceError(w, err)
@@ -100,8 +118,7 @@ func StartServer(player *Player) error {
 	})
 
 	// GET single show
-	r.Get("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Cache-Control", "no-cache, no-store")
+	api.Get("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		show, err := LoadShow(id)
 		if err != nil {
@@ -112,8 +129,53 @@ func StartServer(player *Player) error {
 		RespondJSON(w, show)
 	})
 
-	// POST single show
-	r.Post("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// POST new shot
+	api.Post("/shows", func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(32 << 20) // 32MB
+		if err != nil {
+			RespondBadRequest(w, err.Error())
+			return
+		}
+
+		id := r.PostFormValue("id")
+		if id == "" {
+			RespondBadRequest(w, "id is required")
+			return
+		}
+		if err := ValidateShowID(id); err != nil {
+			RespondBadRequest(w, err.Error())
+			return
+		}
+		if ShowExists(id) {
+			RespondBadRequest(w, fmt.Sprintf("show already exists: %s", id))
+			return
+		}
+
+		audioFile, h, err := r.FormFile("audio_file")
+		if err != nil {
+			RespondBadRequest(w, "audio_file is required")
+			return
+		}
+		if filepath.Ext(h.Filename) != ".mp3" {
+			RespondBadRequest(w, "audio_file must be an .mp3")
+			return
+		}
+
+		show := NewShow(id)
+		if err := SaveShow(id, show); err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+		if err := SaveShowAudio(id, audioFile); err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// PUT single show
+	api.Put("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		if id == "" {
 			RespondNotFoundError(w, "show id required")
@@ -128,17 +190,19 @@ func StartServer(player *Player) error {
 
 		if len(show.Tracks) == 0 {
 			RespondBadRequest(w, "show had zero tracks, refusing to save!")
+			return
 		}
 
 		if err := SaveShow(id, &show); err != nil {
 			RespondInternalServiceError(w, err)
+			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
 	// GET audio file for single show
-	r.Get("/audio/{id}", func(w http.ResponseWriter, r *http.Request) {
+	api.Get("/audio/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		audioPath, err := ShowAudioPath(id)
 		if err != nil {
@@ -148,10 +212,11 @@ func StartServer(player *Player) error {
 		http.ServeFile(w, r, audioPath)
 	})
 
-	r.Get("/play/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// Play single show
+	api.Get("/play/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 
-		exists, err := ShowExists(id)
+		exists, err := ShowIsPlayable(id)
 		if err != nil {
 			RespondInternalServiceError(w, err)
 			return
@@ -166,20 +231,25 @@ func StartServer(player *Player) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	r.Get("/playall", func(w http.ResponseWriter, r *http.Request) {
+	// Play all shows
+	api.Get("/playall", func(w http.ResponseWriter, r *http.Request) {
 		player.PlayAll()
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	r.Get("/static", func(w http.ResponseWriter, r *http.Request) {
+	// Set static state
+	api.Get("/static", func(w http.ResponseWriter, r *http.Request) {
 		player.Stop()
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	r.Get("/next", func(w http.ResponseWriter, r *http.Request) {
+	// Play next show in the queue
+	api.Get("/next", func(w http.ResponseWriter, r *http.Request) {
 		player.Next()
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	r.Mount("/api", api)
 
 	address := fmt.Sprintf("%s:%s", Host, Port)
 	log.Info().Str("listen", address).Msg("launching server")

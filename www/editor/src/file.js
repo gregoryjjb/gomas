@@ -152,23 +152,23 @@ function createNewProject() {
 
     // Create form data
     var formData = new FormData();
-    formData.append("projectName", newName);
-    formData.append("audioFile", newAudioFile);
-    //formData.append("projectFile", newProjectFile);
-    formData.append("projectText", newProjectString);
-
-    var xhr = new XMLHttpRequest();
-    // Add any event handlers here...
-    xhr.open("POST", API_PATH + "createproject.php", true);
-
-    xhr.onload = function () {
-      popToast(xhr.response);
-    };
-
-    xhr.send(formData);
+    formData.append("id", newName);
+    formData.append("audio_file", newAudioFile);
+    fetch("/api/shows", {
+      method: "POST",
+      body: formData,
+    })
+      .then((res) => {
+        if (!res.ok) {
+          return Promise.reject(res);
+        }
+        popToast("Show created");
+        $(".modal").modal("close");
+      })
+      .catch((res) => {
+        res.text().then((t) => popToast(t, true));
+      });
   }
-
-  $(".modal").modal("close");
 }
 
 function openRemoteProject(newProject) {
@@ -179,7 +179,7 @@ function openRemoteProject(newProject) {
     return;
   }
 
-  const projectURL = `/shows/${newProject}`;
+  const projectURL = `/api/shows/${newProject}`;
 
   // Load project file
   $.get(projectURL, function (data) {
@@ -190,34 +190,36 @@ function openRemoteProject(newProject) {
     $(".modal").modal("close");
   });
 
-	wavesurfer.load(`/audio/${newProject}`);
+  wavesurfer.load(`/api/audio/${newProject}`);
 }
 
 function saveRemoteProject() {
   var projectObject = Timeline.getProjectObject();
 
-	fetch(`/shows/${Timeline.projectData.id}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(projectObject),
-	}).then(res => {
-		if (res.ok) {
-			popToast("Saved");
-		} else {
-			throw new Error(res.statusText)
-		}
-	}).catch(err => {
-		alert(`Save failed: ${err}`);
-	});
+  fetch(`/api/shows/${Timeline.projectData.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(projectObject),
+  })
+    .then((res) => {
+      if (res.ok) {
+        popToast("Saved");
+      } else {
+        throw new Error(res.statusText);
+      }
+    })
+    .catch((err) => {
+      alert(`Save failed: ${err}`);
+    });
 }
 
 function getRemoteProjectList(callbackFunction) {
-  fetch("/shows")
+  fetch("/api/shows")
     .then((res) => res.json())
     .then((data) => {
       console.log("shows data", data);
-			projectArray = data.map(show => show.id);
-			callbackFunction(projectArray)
+      projectArray = data.map((show) => show.id);
+      callbackFunction(projectArray);
     })
     .catch((err) => console.error(err));
 }

@@ -1,21 +1,27 @@
-GET http://localhost:1225/shows
+GET http://localhost:1225/api/shows
 
 ###
 
-GET http://localhost:1225/shows/christmas_eve_sarajevo
+GET http://localhost:1225/api/shows/christmas_eve_sarajevo
 
 ###
 
-GET http://localhost:1225/play/christmas_eve_sarajevo
+GET http://localhost:1225/api/play/christmas_eve_sarajevo
 
 ###
 
-GET http://localhost:1225/playall
+GET http://localhost:1225/api/playall
 
 ###
 
-GET http://localhost:1225/static
+GET http://localhost:1225/api/static
 
 ###
 
-GET http://localhost:1225/next
+GET http://localhost:1225/api/next
+
+###
+
+GET http://localhost:1225/panic
+
+###

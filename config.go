@@ -11,27 +11,27 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type Duration time.Duration
+type DurationMarshallable time.Duration
 
-func (d Duration) MarshalJSON() ([]byte, error) {
+func (d DurationMarshallable) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
 }
 
-func (d *Duration) UnmarshalJSON(b []byte) error {
+func (d *DurationMarshallable) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
 	switch value := v.(type) {
 	case float64:
-		*d = Duration(time.Duration(value))
+		*d = DurationMarshallable(time.Duration(value))
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
 		if err != nil {
 			return err
 		}
-		*d = Duration(tmp)
+		*d = DurationMarshallable(tmp)
 		return nil
 	default:
 		return errors.New("invalid duration")
@@ -39,8 +39,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 type GomasConfig struct {
-	Pinout []int    `json:"pinout"`
-	Bias   Duration `json:"bias"`
+	Pinout []int                `json:"pinout"`
+	Bias   DurationMarshallable `json:"bias"`
 }
 
 func GetEnvOr(key string, fallback string) string {
@@ -53,6 +53,8 @@ func GetEnvOr(key string, fallback string) string {
 
 var Port = GetEnvOr("PORT", "1225")
 var Host = GetEnvOr("HOST", "")
+
+var NoEmbed = os.Getenv("GOMAS_NO_EMBED") != ""
 
 // How many times per second to update the state of the lights
 var FramesPerSecond float64 = 120

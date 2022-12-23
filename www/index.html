@@ -17,6 +17,7 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+        margin-bottom: 64px;
       }
 
       button {
@@ -46,6 +47,9 @@
       </li>
       {{end}}
     </ul>
+    <p>
+      <a href="/editor">Show editor</a>
+    </p>
     <script type="text/javascript">
       const playShow = (id) => {
         fetch(`/play/${id}`);

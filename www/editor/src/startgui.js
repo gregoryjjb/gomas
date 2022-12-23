@@ -2,7 +2,7 @@
 
 
 // Check to see if we have a server
-var modeRequest = $.get("/shows");
+var modeRequest = $.get("/api/shows");
 
 // Remote 
 modeRequest.success(function(result) {
