@@ -130,8 +130,6 @@ func (kp *KeyframePlayer) Load(id string) error {
 	return nil
 }
 
-const speakerBufferSize = time.Millisecond * 200
-
 // Returns true if done
 func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
 	secs := (duration - kp.bias).Seconds()
@@ -192,7 +190,7 @@ func (ap *AudioPlayer) Play(path string) (time.Time, error) {
 	// ap.streamer = streamer
 	ap.format = format
 
-	speaker.Init(format.SampleRate, format.SampleRate.N(speakerBufferSize))
+	speaker.Init(format.SampleRate, format.SampleRate.N(GetConfigSpeakerBuffer()))
 
 	ap.streamer = streamer
 
@@ -230,32 +228,16 @@ func newPlayerInternals() (*playerInternals, error) {
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    NewAudioPlayer(),
-		keyframePlayer: &KeyframePlayer{ bias: getBias() },
+		keyframePlayer: &KeyframePlayer{ bias: GetConfigBias() },
 	}, nil
-}
-
-func getBias() time.Duration {
-	b := GetConfig().Bias
-	if b != nil {
-		return time.Duration(*b)
-	}
-	return 0
-}
-
-func getRestPeriod() time.Duration {
-	rp := GetConfig().RestPeriod
-	if rp != nil {
-		return time.Duration(*rp)
-	}
-	return time.Second * 5
 }
 
 func (pi *playerInternals) run(channel chan PlayerMessage) {
 	if pi.running {
-		plog.Fatal().Msg("cannot call run on playerInternals more than once")
+		plog.Fatal().Msg("Cannot call run on playerInternals more than once")
 	}
 	pi.running = true
-	plog.Print("running player loop")
+	plog.Print("Running player loop")
 
 	for {
 		// Handle incoming message
@@ -264,7 +246,7 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 			plog.Debug().
 				Str("command", string(msg.Command)).
 				Str("value", msg.Value).
-				Msg("received message")
+				Msg("Received message")
 
 			switch msg.Command {
 			case CommandPlay:
@@ -287,27 +269,27 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 			// Do nothing
 		}
 
-		// Handle state change
+		// Handle actions required by current state
 		switch pi.state {
 		case StatePlaying:
 			t := time.Since(pi.startTime)
-			// t := audioPlayer.CurrentTime()
 			done, err := pi.keyframePlayer.Execute(t)
 			if err != nil {
 				pi.handleError(err)
 			} else if done {
-				plog.Print("done signal received, ending current show")
+				plog.Print("Done signal received, ending current show")
 				pi.handleShowEnd()
 			}
 
 		case StateResting:
 			t := time.Since(pi.startTime)
-			if t >= getRestPeriod() {
+			if t >= GetConfigRestPeriod() {
 				pi.playNextShow()
 			}
 		}
 
-		delay := time.Second / time.Duration(FramesPerSecond)
+		fps := GetConfigFramesPerSecond()
+		delay := time.Second / time.Duration(fps)
 		time.Sleep(delay)
 	}
 }
@@ -329,7 +311,7 @@ func (pi *playerInternals) enterIdle() {
 
 func (pi *playerInternals) playShow(id string) error {
 	pi.state = StatePlaying
-	plog.Info().Str("id", id).Msg("playing show")
+	plog.Info().Str("id", id).Msg("Playing show")
 
 	err := pi.keyframePlayer.Load(id)
 	if err != nil {
@@ -387,9 +369,9 @@ func (pi *playerInternals) handleShowEnd() {
 
 	if pi.queue.Length() > 1 {
 		plog.Info().
-			Str("period", getRestPeriod().String()).
+			Str("period", GetConfigRestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
-			Msg("resting")
+			Msg("Resting")
 
 		pi.state = StateResting
 		pi.startTime = time.Now()
@@ -401,7 +383,7 @@ func (pi *playerInternals) handleShowEnd() {
 
 func (pi *playerInternals) handleError(err error) {
 	if err != nil {
-		plog.Err(err).Msg("player error")
+		plog.Err(err).Msg("Player error")
 		pi.enterIdle()
 	}
 }

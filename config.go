@@ -39,9 +39,11 @@ func (d *DurationMarshallable) UnmarshalJSON(b []byte) error {
 }
 
 type GomasConfig struct {
-	Pinout     []int                 `json:"pinout"`
-	Bias       *DurationMarshallable `json:"bias"`
-	RestPeriod *DurationMarshallable `json:"rest_period"`
+	Pinout          []int                 `json:"pinout"`
+	Bias            *DurationMarshallable `json:"bias"`
+	RestPeriod      *DurationMarshallable `json:"rest_period"`
+	FramesPerSecond *int                  `json:"frames_per_second"`
+	SpeakerBuffer   *DurationMarshallable `json:"speaker_buffer"`
 }
 
 func GetEnvOr(key string, fallback string) string {
@@ -140,4 +142,44 @@ func InitConfig() error {
 	}
 
 	return nil
+}
+
+func GetConfigBias() time.Duration {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	if config.Bias != nil {
+		return time.Duration(*config.Bias)
+	}
+	return time.Duration(0)
+}
+
+func GetConfigRestPeriod() time.Duration {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	if config.RestPeriod != nil {
+		return time.Duration(*config.RestPeriod)
+	}
+	return time.Second * 5
+}
+
+func GetConfigFramesPerSecond() int {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	if config.FramesPerSecond != nil {
+		return *config.FramesPerSecond
+	}
+	return 120
+}
+
+func GetConfigSpeakerBuffer() time.Duration {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	if config.SpeakerBuffer != nil {
+		return time.Duration(*config.SpeakerBuffer)
+	}
+	return time.Millisecond * 200
 }
