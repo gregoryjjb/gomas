@@ -39,8 +39,9 @@ func (d *DurationMarshallable) UnmarshalJSON(b []byte) error {
 }
 
 type GomasConfig struct {
-	Pinout []int                `json:"pinout"`
-	Bias   DurationMarshallable `json:"bias"`
+	Pinout     []int                 `json:"pinout"`
+	Bias       *DurationMarshallable `json:"bias"`
+	RestPeriod *DurationMarshallable `json:"rest_period"`
 }
 
 func GetEnvOr(key string, fallback string) string {

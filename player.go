@@ -134,8 +134,6 @@ const speakerBufferSize = time.Millisecond * 200
 
 // Returns true if done
 func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
-	// // bias := speakerBufferSize.Seconds() - (time.Millisecond * 50).Seconds()
-	// bias := 0.0
 	secs := (duration - kp.bias).Seconds()
 
 	if len(kp.frames) <= int(kp.index) {
@@ -217,8 +215,6 @@ const (
 	StateResting = "resting" // Waiting in between songs
 )
 
-const restPeriod = time.Second * 3
-
 type playerInternals struct {
 	running   bool
 	state     PlayerState
@@ -234,8 +230,24 @@ func newPlayerInternals() (*playerInternals, error) {
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    NewAudioPlayer(),
-		keyframePlayer: &KeyframePlayer{ bias: time.Duration(GetConfig().Bias) },
+		keyframePlayer: &KeyframePlayer{ bias: getBias() },
 	}, nil
+}
+
+func getBias() time.Duration {
+	b := GetConfig().Bias
+	if b != nil {
+		return time.Duration(*b)
+	}
+	return 0
+}
+
+func getRestPeriod() time.Duration {
+	rp := GetConfig().RestPeriod
+	if rp != nil {
+		return time.Duration(*rp)
+	}
+	return time.Second * 5
 }
 
 func (pi *playerInternals) run(channel chan PlayerMessage) {
@@ -290,7 +302,7 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 
 		case StateResting:
 			t := time.Since(pi.startTime)
-			if t >= restPeriod {
+			if t >= getRestPeriod() {
 				pi.playNextShow()
 			}
 		}
@@ -375,7 +387,7 @@ func (pi *playerInternals) handleShowEnd() {
 
 	if pi.queue.Length() > 1 {
 		plog.Info().
-			Str("period", restPeriod.String()).
+			Str("period", getRestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
 			Msg("resting")
 

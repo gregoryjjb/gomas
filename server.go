@@ -188,6 +188,11 @@ func StartServer(player *Player) error {
 			return
 		}
 
+		if !ShowExists(id) {
+			RespondNotFoundError(w, fmt.Sprintf("show '%s' not found", id))
+			return
+		}
+
 		if len(show.Tracks) == 0 {
 			RespondBadRequest(w, "show had zero tracks, refusing to save!")
 			return
