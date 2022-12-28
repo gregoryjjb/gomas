@@ -21,8 +21,6 @@ func init() {
 	InitializeLogger()
 }
 
-const GomasVersion = "69.420"
-
 // Populated by ldflags (ugh)
 var (
 	version            string
@@ -38,14 +36,14 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Println("Gomas version:", GomasVersion)
+		fmt.Println("Gomas version:", version)
 		fmt.Println("Built on:", buildTime)
 		fmt.Println("Commit hash:", commitHash)
 		return
 	}
 
 	log.Info().
-		Str("version", GomasVersion).
+		Str("version", version).
 		Str("build_timestamp", buildTime.Format(time.RFC3339)).
 		Str("commit_hash", commitHash).
 		Msg("Initializing Gomas")
