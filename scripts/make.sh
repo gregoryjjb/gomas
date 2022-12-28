@@ -6,7 +6,7 @@ GOMASDIR=/gomas
 
 cd $GOMASDIR
 
-VERSION=$(git describe --abbrev=0)
+VERSION=$1
 
 # arm64
 CC=aarch64-linux-gnu-gcc \

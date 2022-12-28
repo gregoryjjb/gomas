@@ -127,6 +127,8 @@ func main() {
 func release() {
 	fmt.Println("Cutting new release")
 
+	// Get next version
+
 	gitDescribe, err := exec.Command("git", "describe", "--abbrev=0").Output()
 	must(err)
 	currentVersionStr := strings.TrimSpace(string(gitDescribe))
@@ -154,11 +156,45 @@ func release() {
 
 	fmt.Println("New version:", newVersion)
 
-	err = exec.Command(
-		"git", "tag",
-		"-a", newVersion.String(),
-		"-m", fmt.Sprintf("Version %s", newVersion.String()),
-	).Run()
+	cwd, err := os.Getwd()
 	must(err)
-	fmt.Println("Tagged new version")
+
+	mountArg := fmt.Sprintf(`type=bind,source=%s,target=/gomas`, cwd)
+	fmt.Println(mountArg)
+
+	// Build
+	buildCmd := exec.Command("docker", "run",
+		"--mount", mountArg,
+		"--interactive",
+		"--workdir", "/gomas",
+		"xgomas",
+		"bash", "/gomas/scripts/make.sh", newVersion.String(),
+	)
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	must(buildCmd.Run())
+
+	pwd, _ :=exec.Command("pwd").Output()
+	fmt.Println(string(pwd))
+
+	// Make release
+	releaseCmd := exec.Command(
+		"gh", "release", "create",
+		newVersion.String(),
+		"--generate-notes",
+		"./dist/*.tgz",
+	)
+	releaseCmd.Stdout = os.Stdout
+	releaseCmd.Stderr = os.Stderr
+	must(releaseCmd.Run())
+
+	// Tag
+
+	// err = exec.Command(
+	// 	"git", "tag",
+	// 	"-a", newVersion.String(),
+	// 	"-m", fmt.Sprintf("Version %s", newVersion.String()),
+	// ).Run()
+	// must(err)
+	// fmt.Println("Tagged new version")
 }
