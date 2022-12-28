@@ -188,6 +188,11 @@ func release() {
 	releaseCmd.Stderr = os.Stderr
 	must(releaseCmd.Run())
 
+	fetchCmd := exec.Command("git", "fetch", "--tags", "origin")
+	fetchCmd.Stdout = os.Stdout
+	fetchCmd.Stderr = os.Stderr
+	must(fetchCmd.Run())
+
 	// Tag
 
 	// err = exec.Command(
