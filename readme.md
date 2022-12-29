@@ -1,6 +1,6 @@
+# Gomas
 
-
-
+Play shows synced to music on your Christmas lights.
 
 ## Development
 
@@ -19,22 +19,22 @@ scripts/dev.ps1
 
 ## Building
 
-Cross-compiling requires that we have an ARM-compatible GCC and the ARM version of libasound available, since this is finicky there's a Dockerfile included that spins up all our required dependencies.
+Cross-compiling requires that we have an ARM-compatible GCC and the ARM version of libasound available, since this is finicky there's Dockerfiles included that spin up all our required dependencies.
 
-Build Docker image (set `DOCKER_BUILDKIT=0` for better debugging if it's failing at some intermediate step):
+Build Docker images (set `DOCKER_BUILDKIT=0` for better debugging if it's failing at some intermediate step):
 
 ```sh
-docker build --tag xgomas:latest ./
+scripts/prepare-containers.ps1
 ```
 
-To just build the tgz'd ARM binary:
+To build and tar binaries for arm32 and arm64:
 
 ```sh
 # Run with no version to print previous version
 scripts/build.ps1 v1.2.3
 ```
 
-To build AND release a new version:
+To build AND release a new version (requires GitHub CLI):
 
 ```sh
 scripts/release.ps1 v1.2.3
