@@ -66,14 +66,13 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-
 func StartServer(player *Player) error {
-	// Ensure template parses correctly
-	_, err := GetIndexTemplate()
+	// Ensure templates parse correctly
+	_, err := GetTemplates()
 	if err != nil {
 		return err
 	}
-	
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Recoverer)
@@ -87,17 +86,27 @@ func StartServer(player *Player) error {
 			return
 		}
 
-		tmpl, err := GetIndexTemplate()
+		tmpl, err := GetTemplates()
 		if err != nil {
 			RespondInternalServiceError(w, err)
 			return
 		}
 
-		tmpl.Execute(w, shows)
+		tmpl.ExecuteTemplate(w, "index.html", shows)
 	})
 
 	// Cram the legacy show editor in
 	FileServer(r, "/editor", GetEditorFS())
+
+	r.Get("/logs", func(w http.ResponseWriter, r *http.Request) {
+		t, err := GetTemplates()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		t.ExecuteTemplate(w, "logs.html", BufferedLogsArray())
+	})
 
 	// For testing panics
 	r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +263,20 @@ func StartServer(player *Player) error {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	api.Get("/logs", func(w http.ResponseWriter, r *http.Request) {
+		BufferedLogs(w)
+	})
+
 	r.Mount("/api", api)
+
+	// r.Get("/ws", createWebsocketHandler(player))
+
+	staticFS, err := GetStatic()
+	if err != nil {
+		return err
+	}
+	// r.Method("GET", "/static", http.StripPrefix("/static/", ))
+	r.Handle("/*", http.FileServer(http.FS(staticFS)))
 
 	address := fmt.Sprintf("%s:%s", Host, Port)
 	log.Info().Str("listen", address).Msg("launching server")

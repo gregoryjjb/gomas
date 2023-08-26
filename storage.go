@@ -230,7 +230,7 @@ func SaveShowAudio(id string, newAudio io.Reader) error {
 }
 
 func ShowIsPlayable(id string) (bool, error) {
-	if ShowExists(id) {
+	if !ShowExists(id) {
 		return false, nil
 	}
 

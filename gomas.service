@@ -1,3 +1,5 @@
+# Copy and paste this into the systemd service directory
+# (Usually /etc/systemd/system)
 [Unit]
 Description=Christmas lights
 

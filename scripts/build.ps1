@@ -9,8 +9,12 @@ if ($VERSION -notmatch '^v\d+\.\d+\.\d+$') {
 
 New-Item -ItemType Directory -Force -Path ./dist
 Remove-Item ./dist/*
+Remove-Item ./static/dist/*
 
 Write-Host "Building $VERSION"
+
+Write-Host "Bundling CSS"
+npm run build
 
 Write-Host "Building arm64"
 docker run --mount type=bind,source="$(Get-Location)",target=/gomas --interactive --workdir /gomas xgomas-arm64 bash /gomas/scripts/make.sh $VERSION arm64

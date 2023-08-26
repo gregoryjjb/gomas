@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Logs | Gomas</title>
+    <link rel="stylesheet" href="/dist/output.css" />
+  </head>
+  <style>
+    .table {
+      display: grid;
+      grid-template-columns:
+        14em
+        4em
+        1fr 1fr;
+    }
+
+    thead,
+    tbody,
+    tr {
+      display: contents;
+    }
+  </style>
+  <body>
+    <!-- <table class="table" id="log-table">
+      <tbody id="log-tbody"></tbody>
+    </table> -->
+    <!-- <pre id="logs" class="whitespace-pre-wrap"></pre> -->
+    <div id="logs" class="font-mono text-sm leading-tight"></div>
+    <script type="text/javascript" src="/vendor/ansi_up.js"></script>
+    <script type="text/javascript">
+      const lines = {{.}};
+
+      const ansiup = new AnsiUp();
+      ansiup.use_classes = true;
+      const div = document.getElementById('logs');
+
+      lines.forEach(line => {
+        const html = ansiup.ansi_to_html(line);
+
+        const p = document.createElement('p');
+        p.className = 'mb-2';
+        p.innerHTML = html;
+
+        div.appendChild(p);
+      })
+    </script>
+  </body>
+</html>

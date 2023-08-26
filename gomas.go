@@ -33,12 +33,18 @@ func main() {
 	buildTime := time.Unix(ts, 0)
 
 	versionFlag := flag.Bool("version", false, "Print version")
+	systemdFlag := flag.Bool("systemd", false, "Print systemd service file")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Println("Gomas version:", version)
 		fmt.Println("Built on:", buildTime)
 		fmt.Println("Commit hash:", commitHash)
+		return
+	}
+
+	if *systemdFlag {
+		SystemdServiceFile()
 		return
 	}
 
