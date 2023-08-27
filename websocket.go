@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -31,12 +32,13 @@ func createWebsocketHandler(player *Player) http.HandlerFunc {
 		defer unsub()
 
 		for msg := range ch {
-			fmt.Println("PULLED MSG FROM CHANNEL ", msg)
-			// if err := c.Write(r.Context(), websocket.MessageText, []byte(msg)); err != nil {
-			// 	log.Err(err).Msg("Websocket write failed")
-			// }
+			js, err := json.Marshal(msg)
+			if err != nil {
+				log.Err(err).Msg("Failed to marshal event payload for websocket")
+				continue
+			}
 
-			if err := writeTimeout(r.Context(), 5*time.Second, c, []byte(msg)); err != nil {
+			if err := writeTimeout(r.Context(), 5*time.Second, c, js); err != nil {
 				break
 			}
 		}

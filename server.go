@@ -95,6 +95,16 @@ func StartServer(player *Player) error {
 		tmpl.ExecuteTemplate(w, "index.html", shows)
 	})
 
+	r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
+		t, err := GetTemplates()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		t.ExecuteTemplate(w, "config.html", struct{ Version string }{ version })
+	})
+
 	// Cram the legacy show editor in
 	FileServer(r, "/editor", GetEditorFS())
 
@@ -269,7 +279,7 @@ func StartServer(player *Player) error {
 
 	r.Mount("/api", api)
 
-	// r.Get("/ws", createWebsocketHandler(player))
+	r.Get("/ws", createWebsocketHandler(player))
 
 	staticFS, err := GetStatic()
 	if err != nil {

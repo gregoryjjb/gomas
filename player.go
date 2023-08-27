@@ -32,6 +32,11 @@ const (
 	CommandNext    PlayerCommand = "next"
 )
 
+type PlayerEvent struct {
+	State   PlayerState `json:"state"`
+	Payload string      `json:"payload"`
+}
+
 type ExternalPlayerState struct {
 	mutex sync.RWMutex
 	value string
@@ -59,7 +64,7 @@ type PlayerMessage struct {
 type Player struct {
 	commandChannel chan PlayerMessage
 	state          *ExternalPlayerState
-	pubsub         *pubsub.Pubsub[string]
+	pubsub         *pubsub.Pubsub[PlayerEvent]
 }
 
 func NewPlayer() *Player {
@@ -104,7 +109,7 @@ func (p *Player) Next() {
 	}
 }
 
-func (p *Player) Subscribe() (func(), <-chan string) {
+func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
 	handle, ch := p.pubsub.Subscribe()
 	return func() {
 		p.pubsub.Unsubscribe(handle)
@@ -230,7 +235,7 @@ type playerInternals struct {
 	audioPlayer    *AudioPlayer
 	keyframePlayer *KeyframePlayer
 
-	ps *pubsub.Pubsub[string]
+	ps *pubsub.Pubsub[PlayerEvent]
 }
 
 func newPlayerInternals() (*playerInternals, error) {
@@ -239,7 +244,7 @@ func newPlayerInternals() (*playerInternals, error) {
 		state:          StateIdle,
 		audioPlayer:    NewAudioPlayer(),
 		keyframePlayer: &KeyframePlayer{bias: GetConfigBias()},
-		ps:             pubsub.New[string](),
+		ps:             pubsub.New[PlayerEvent](),
 	}, nil
 }
 
@@ -318,12 +323,13 @@ func (pi *playerInternals) enterIdle() {
 	pi.clearCurrentShow()
 	pi.clearQueue()
 	pi.state = StateIdle
-	pi.ps.Publish("Idle")
+	pi.ps.Publish(PlayerEvent{
+		State: StateIdle,
+	})
 }
 
 func (pi *playerInternals) playShow(id string) error {
 	pi.state = StatePlaying
-	pi.ps.Publish(fmt.Sprintf("Playing %s", id))
 	plog.Info().Str("id", id).Msg("Playing show")
 
 	err := pi.keyframePlayer.Load(id)
@@ -340,6 +346,11 @@ func (pi *playerInternals) playShow(id string) error {
 	if err != nil {
 		return err
 	}
+
+	pi.ps.Publish(PlayerEvent{
+		State:   StatePlaying,
+		Payload: id,
+	})
 
 	return nil
 }
@@ -387,7 +398,10 @@ func (pi *playerInternals) handleShowEnd() {
 			Msg("Resting")
 
 		pi.state = StateResting
-		pi.ps.Publish(fmt.Sprintf("Next up: %s", pi.queue.PeekNext()))
+		pi.ps.Publish(PlayerEvent{
+			State:   StateResting,
+			Payload: pi.queue.PeekNext(),
+		})
 		pi.startTime = time.Now()
 	} else {
 		// No more items in queue, stop
