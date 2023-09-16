@@ -86,13 +86,29 @@ func StartServer(player *Player) error {
 			return
 		}
 
+		playlists, err := ListPlaylists()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+			return
+		}
+
+		pagedata := struct {
+			Shows     []*ShowInfo
+			Playlists []Playlist
+			Exist     map[string]bool
+		}{shows, playlists, make(map[string]bool)}
+
+		for _, show := range shows {
+			pagedata.Exist[show.ID] = true
+		}
+
 		tmpl, err := GetTemplates()
 		if err != nil {
 			RespondInternalServiceError(w, err)
 			return
 		}
 
-		tmpl.ExecuteTemplate(w, "index.html", shows)
+		tmpl.ExecuteTemplate(w, "index.html", pagedata)
 	})
 
 	r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +118,7 @@ func StartServer(player *Player) error {
 			return
 		}
 
-		t.ExecuteTemplate(w, "config.html", struct{ Version string }{ version })
+		t.ExecuteTemplate(w, "config.html", struct{ Version string }{version})
 	})
 
 	// Cram the legacy show editor in
@@ -234,6 +250,16 @@ func StartServer(player *Player) error {
 			return
 		}
 		http.ServeFile(w, r, audioPath)
+	})
+
+	// GET Playlists
+	api.Get("/playlists", func(w http.ResponseWriter, r *http.Request) {
+		playlists, err := ListPlaylists()
+		if err != nil {
+			RespondInternalServiceError(w, err)
+		}
+
+		RespondJSON(w, playlists)
 	})
 
 	// Play single show

@@ -52,7 +52,7 @@ func (state *LegacyState) UnmarshalJSON(data []byte) error {
 func NewShow(id string) *LegacyShow {
 	show := &LegacyShow{
 		ProjectData: &LegacyProjectData{
-			ID: id,
+			ID:   id,
 			Name: id,
 		},
 	}
@@ -60,7 +60,7 @@ func NewShow(id string) *LegacyShow {
 	// Hack: hardcoded 8 channels
 	for i := 0; i < 8; i++ {
 		show.Tracks = append(show.Tracks, &LegacyTrack{
-			ID: i,
+			ID:        i,
 			Keyframes: []*LegacyKeyframe{},
 		})
 	}
@@ -114,6 +114,56 @@ func FileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+//////////////
+// Playlists
+
+type PlaylistShow struct {
+	ID     string `json:"id"`
+	Exists bool
+}
+
+type Playlist struct {
+	ID    string   `json:"id"`
+	Shows []string `json:"shows"`
+}
+
+func ListPlaylists() ([]Playlist, error) {
+	path := filepath.Join(DataDir, "playlists.json")
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	shows, err := ListShows()
+	if err != nil {
+		return nil, err
+	}
+	showset := make(map[string]ShowInfo)
+	for _, show := range shows {
+		showset[show.ID] = *show
+	}
+
+	var data []Playlist
+	if err := json.NewDecoder(file).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	// for i, playlist := range data {
+	// 	for j, show := range playlist.Shows {
+	// 		if _, exists := showset[show.ID]; !exists {
+	// 			show.Exists = false
+	// 			data[i].Shows[j] = show
+	// 		}
+	// 	}
+	// }
+
+	return data, nil
 }
 
 //////////

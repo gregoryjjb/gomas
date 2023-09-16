@@ -25,3 +25,5 @@ GET http://localhost:1225/api/next
 GET http://localhost:1225/panic
 
 ###
+
+GET http://localhost:1225/api/playlists

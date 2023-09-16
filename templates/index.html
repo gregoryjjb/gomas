@@ -63,8 +63,8 @@
         </button>
       </div>
 
-      <ul class="flex flex-col gap-3 mb-16 pl-3">
-        {{range .}}
+      <ul class="flex flex-col gap-3 mb-12 pl-3">
+        {{range .Shows}}
         <li>
           <button
             class="flex items-baseline group"
@@ -85,6 +85,25 @@
             <p class="break-all text-left">{{.ID}}</p>
           </button>
         </li>
+        {{end}}
+      </ul>
+
+      <h2 class="text-xl font-semibold mb-8">Playlists</h2>
+      <ul class="flex flex-col gap-3 pl-3 mb-16">
+        {{range .Playlists}}
+          <li>
+            <p class="mb-2">{{.ID}}</p>
+            <ul class="pl-3">
+              {{range .Shows}}
+                <li>
+                  <p class="text-sm text-slate-400">
+                  {{$}}
+                  {{.}}
+                </p>
+                </li>
+              {{end}}
+            </ul>
+          </li>
         {{end}}
       </ul>
 
