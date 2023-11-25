@@ -53,13 +53,22 @@ func GetTemplates() (*template.Template, error) {
 	return t, nil
 }
 
-// go:embed static
+//go:embed static
 var staticEmbed embed.FS
 
-func GetStatic() (fs.FS, error) {
+func GetStaticFS() (http.FileSystem, error) {
 	if NoEmbed {
-		return os.DirFS("static"), nil
+		log.Debug().Msg("Reading static files dynamically from filesystem")
+		return http.Dir("static"), nil
 	}
 
-	return fs.Sub(staticEmbed, "static")
+	log.Debug().Msg("Reading embedded static files")
+	fsys := fs.FS(staticEmbed)
+	
+	staticFiles, err := fs.Sub(fsys, "static")
+	if err != nil {
+		return nil, err
+	}
+
+	return http.FS(staticFiles), nil
 }

@@ -7,3 +7,6 @@ Description=Christmas lights
 Type=simple
 User={{.User}}
 ExecStart={{.BinaryPath}}
+
+[Install]
+WantedBy=multi-user.target

@@ -11,7 +11,10 @@ Play shows synced to music on your Christmas lights.
 
 2. Remove any previous version and extract the new version
     ```sh
-    rm -rf /usr/local/gomas && tar -C /usr/local -xzf gomas-v0.1.6-arm64.tgz
+    rm -rf /usr/local/bin/gomas && tar -C /usr/local/bin -xzf gomas-v0.1.6-arm64.tgz
+
+    # Or, more likely, with sudo:
+    sudo rm -rf /usr/local/bin/gomas && sudo tar -C /usr/local/bin -xzf gomas-v0.1.6-arm64.tgz
      ```
 
 3. To daemonize with systemd:

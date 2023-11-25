@@ -307,12 +307,16 @@ func StartServer(player *Player) error {
 
 	r.Get("/ws", createWebsocketHandler(player))
 
-	staticFS, err := GetStatic()
+	staticFS, err := GetStaticFS()
 	if err != nil {
 		return err
 	}
-	// r.Method("GET", "/static", http.StripPrefix("/static/", ))
-	r.Handle("/*", http.FileServer(http.FS(staticFS)))
+	FileServer(r, "/", staticFS)
+	
+	chi.Walk(r, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+		log.Debug().Str("method", method).Str("route", route).Int("middleware_count", len(middlewares)).Msg("Registered route")
+		return nil
+	})
 
 	address := fmt.Sprintf("%s:%s", Host, Port)
 	log.Info().Str("listen", address).Msg("launching server")
