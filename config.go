@@ -151,7 +151,7 @@ func GetConfigBias() time.Duration {
 	if config.Bias != nil {
 		return time.Duration(*config.Bias)
 	}
-	return time.Duration(0)
+	return time.Millisecond * 100
 }
 
 func GetConfigRestPeriod() time.Duration {
@@ -181,5 +181,5 @@ func GetConfigSpeakerBuffer() time.Duration {
 	if config.SpeakerBuffer != nil {
 		return time.Duration(*config.SpeakerBuffer)
 	}
-	return time.Millisecond * 200
+	return time.Millisecond * 100
 }

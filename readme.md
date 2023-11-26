@@ -6,15 +6,15 @@ Play shows synced to music on your Christmas lights.
 
 1. Grab the latest release from [the releases page](https://github.com/gregoryjjb/gomas/releases/latest):
     ```sh
-    wget https://github.com/gregoryjjb/gomas/releases/download/v0.1.6/gomas-v0.1.6-arm64.tgz
+    wget https://github.com/gregoryjjb/gomas/releases/download/v0.1.7/gomas-v0.1.7-arm64.tgz
     ```
 
 2. Remove any previous version and extract the new version
     ```sh
-    rm -rf /usr/local/bin/gomas && tar -C /usr/local/bin -xzf gomas-v0.1.6-arm64.tgz
+    rm -rf /usr/local/bin/gomas && tar -C /usr/local/bin -xzf gomas-v0.1.7-arm64.tgz
 
     # Or, more likely, with sudo:
-    sudo rm -rf /usr/local/bin/gomas && sudo tar -C /usr/local/bin -xzf gomas-v0.1.6-arm64.tgz
+    sudo rm -rf /usr/local/bin/gomas && sudo tar -C /usr/local/bin -xzf gomas-v0.1.7-arm64.tgz
      ```
 
 3. To daemonize with systemd:
@@ -23,6 +23,10 @@ Play shows synced to music on your Christmas lights.
     gomas --systemd > /etc/systemd/gomas.service
     # To start on boot:
     systemctl enable gomas
+    ```
+    Or if upgrading an existing installation:
+    ```sh
+    systemctl restart gomas
     ```
 
 ## Development

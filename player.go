@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/faiface/beep"
-	"github.com/faiface/beep/mp3"
-	"github.com/faiface/beep/speaker"
+	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/mp3"
+	"github.com/gopxl/beep/speaker"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -145,7 +145,8 @@ func (kp *KeyframePlayer) Load(id string) error {
 
 // Returns true if done
 func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
-	secs := (duration - kp.bias).Seconds()
+	bias := kp.bias
+	secs := (duration - bias).Seconds()
 
 	if len(kp.frames) <= int(kp.index) {
 		return true, nil
@@ -171,13 +172,20 @@ func (kp *KeyframePlayer) Unload() {
 //////////////////////////////////
 // Audio player
 
+const sampleRate = beep.SampleRate(48000)
+
 type AudioPlayer struct {
-	streamer beep.StreamCloser
+	streamer beep.StreamSeekCloser
 	format   beep.Format
 }
 
 func NewAudioPlayer() *AudioPlayer {
 	return &AudioPlayer{}
+}
+
+func (ap *AudioPlayer) Init() error {
+	buff := GetConfigSpeakerBuffer()
+	return speaker.Init(sampleRate, sampleRate.N(buff))
 }
 
 func (ap *AudioPlayer) Stop() {
@@ -200,19 +208,29 @@ func (ap *AudioPlayer) Play(path string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	// ap.streamer = streamer
+
 	ap.format = format
-
-	speaker.Init(format.SampleRate, format.SampleRate.N(GetConfigSpeakerBuffer()))
-
 	ap.streamer = streamer
 
-	done := make(chan bool)
-	speaker.Play(beep.Seq(ap.streamer, beep.Callback(func() {
-		done <- true
-	})))
+	if format.SampleRate != sampleRate {
+		plog.Debug().Int("from", int(format.SampleRate)).Int("to", int(sampleRate)).Msg("Resampling")
+		speaker.Play(beep.Resample(1, format.SampleRate, sampleRate, streamer))
+	} else {
+		plog.Debug().Msg("Playing directly, no resampling")
+		speaker.Play(ap.streamer)
+	}
 
 	return time.Now(), nil
+}
+
+// Position _should_ return the position of the audio playback
+// but it's choppy so it's not used right now
+func (ap *AudioPlayer) Position() time.Duration {
+	if ap.streamer == nil {
+		return 0
+	}
+
+	return ap.format.SampleRate.D(ap.streamer.Position())
 }
 
 //////////////////////////////////
@@ -239,10 +257,15 @@ type playerInternals struct {
 }
 
 func newPlayerInternals() (*playerInternals, error) {
+	ap := NewAudioPlayer()
+	plog.Debug().Msg("Initializing speakers")
+	if err := ap.Init(); err != nil {
+		return nil, err
+	}
 
 	return &playerInternals{
 		state:          StateIdle,
-		audioPlayer:    NewAudioPlayer(),
+		audioPlayer:    ap,
 		keyframePlayer: &KeyframePlayer{bias: GetConfigBias()},
 		ps:             pubsub.New[PlayerEvent](),
 	}, nil
@@ -329,7 +352,6 @@ func (pi *playerInternals) enterIdle() {
 }
 
 func (pi *playerInternals) playShow(id string) error {
-	pi.state = StatePlaying
 	plog.Info().Str("id", id).Msg("Playing show")
 
 	err := pi.keyframePlayer.Load(id)
@@ -347,6 +369,7 @@ func (pi *playerInternals) playShow(id string) error {
 		return err
 	}
 
+	pi.state = StatePlaying
 	pi.ps.Publish(PlayerEvent{
 		State:   StatePlaying,
 		Payload: id,
@@ -359,7 +382,9 @@ func (pi *playerInternals) playNextShow() error {
 	pi.clearCurrentShow()
 	if pi.queue.Length() > 1 {
 		pi.queue.Advance()
-		pi.playShow(pi.queue.Current())
+		if err := pi.playShow(pi.queue.Current()); err != nil {
+			return err
+		}
 	} else {
 		pi.enterIdle()
 	}
@@ -384,7 +409,9 @@ func (pi *playerInternals) playAllShows() error {
 	}
 
 	pi.queue.Replace(ids)
-	pi.playShow(pi.queue.Current())
+	if err := pi.playShow(pi.queue.Current()); err != nil {
+		return err
+	}
 	return nil
 }
 
