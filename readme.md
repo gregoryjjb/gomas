@@ -29,6 +29,31 @@ Play shows synced to music on your Christmas lights.
     systemctl restart gomas
     ```
 
+## Configuration
+
+Config is provided by placing a `gomas.toml` file in either the working directory, the home directory, or somewhere else and passed to Gomas by the `GOMAS_CONFIG` environment variable or the `--config` flag.
+
+```toml
+# Required! Path to data directory
+data_dir = "/path/to/data"
+
+# BCM pin numbering of channels; necessary to play any lights
+pinout = [1, 2, 3, 4, 5, 6, 7, 8]
+
+# How long to rest in between each song
+rest_period = "5s"
+
+# FPS that the show runs at
+frames_per_second = 120
+
+# Offset (delay) playback of lights keyframes by this duration. Useful if 
+# there is an uncontrollable but consistent amount of speaker lag.
+bias = "100ms"
+
+# Duration of audio to buffer. Playback is delayed by this amount.
+speaker_buffer = "100ms"
+```
+
 ## Development
 
 To run on non-pi hardware use the `nogpio` tag: `go run -tags nogpio .`, included in the script:

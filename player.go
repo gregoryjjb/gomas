@@ -127,7 +127,6 @@ func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
 type KeyframePlayer struct {
 	frames []*FlatKeyframe
 	index  int64
-	bias   time.Duration
 }
 
 func (kp *KeyframePlayer) Load(id string) error {
@@ -145,8 +144,7 @@ func (kp *KeyframePlayer) Load(id string) error {
 
 // Returns true if done
 func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
-	bias := kp.bias
-	secs := (duration - bias).Seconds()
+	secs := (duration - GetBias()).Seconds()
 
 	if len(kp.frames) <= int(kp.index) {
 		return true, nil
@@ -266,7 +264,7 @@ func newPlayerInternals() (*playerInternals, error) {
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    ap,
-		keyframePlayer: &KeyframePlayer{bias: GetBias()},
+		keyframePlayer: &KeyframePlayer{},
 		ps:             pubsub.New[PlayerEvent](),
 	}, nil
 }
