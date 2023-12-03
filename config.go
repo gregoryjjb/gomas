@@ -1,49 +1,38 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog/log"
 )
 
 type DurationMarshallable time.Duration
 
-func (d DurationMarshallable) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Duration(d).String())
+func (d DurationMarshallable) MarshalText() ([]byte, error) {
+	return []byte(time.Duration(d).String()), nil
 }
 
-func (d *DurationMarshallable) UnmarshalJSON(b []byte) error {
-	var v interface{}
-	if err := json.Unmarshal(b, &v); err != nil {
+func (d *DurationMarshallable) UnmarshalText(b []byte) error {
+	parsed, err := time.ParseDuration(string(b))
+	if err != nil {
 		return err
 	}
-	switch value := v.(type) {
-	case float64:
-		*d = DurationMarshallable(time.Duration(value))
-		return nil
-	case string:
-		tmp, err := time.ParseDuration(value)
-		if err != nil {
-			return err
-		}
-		*d = DurationMarshallable(tmp)
-		return nil
-	default:
-		return errors.New("invalid duration")
-	}
+	*d = DurationMarshallable(parsed)
+	return nil
 }
 
-type GomasConfig struct {
-	Pinout          []int                 `json:"pinout"`
-	Bias            *DurationMarshallable `json:"bias"`
-	RestPeriod      *DurationMarshallable `json:"rest_period"`
-	FramesPerSecond *int                  `json:"frames_per_second"`
-	SpeakerBuffer   *DurationMarshallable `json:"speaker_buffer"`
+type ConfigTOML struct {
+	DataDir         string                `toml:"data_dir"`
+	Pinout          []int                 `toml:"pinout"`
+	Bias            *DurationMarshallable `toml:"bias"`
+	RestPeriod      *DurationMarshallable `toml:"rest_period"`
+	FramesPerSecond *int                  `toml:"frames_per_second"`
+	SpeakerBuffer   *DurationMarshallable `toml:"speaker_buffer"`
 }
 
 func GetEnvOr(key string, fallback string) string {
@@ -59,92 +48,142 @@ var Host = GetEnvOr("HOST", "")
 
 var NoEmbed = os.Getenv("GOMAS_NO_EMBED") != ""
 
-// How many times per second to update the state of the lights
-var FramesPerSecond float64 = 120
+const ConfigFilename = "gomas.toml"
 
-var DataDir string
-
-func SetDataDir() {
-	provided := os.Getenv("GOMAS_DATA_DIR")
-	if provided == "" {
-		DataDir, _ = filepath.Abs("./data")
-		log.Info().Str("path", DataDir).Msg("Using default data directory")
-	} else {
-		DataDir, _ = filepath.Abs(provided)
-		log.Info().Str("path", DataDir).Msg("Using provded data directory")
-	}
-}
-
-const ConfigFilename = "config.json"
+var absDataDir string
 
 var (
-	config      GomasConfig
+	config      ConfigTOML
 	configMutex sync.RWMutex
 )
 
-func GetConfig() GomasConfig {
-	configMutex.RLock()
-	c := config
-	configMutex.RUnlock()
-	return c
-}
-
-func setConfig(c GomasConfig) {
+func setConfig(c ConfigTOML) {
 	configMutex.Lock()
 	config = c
 	configMutex.Unlock()
 }
 
-func InitConfig() error {
-	SetDataDir()
+func FindConfigFile() (string, error) {
+	configPath := ConfigFlag
+	if configPath != "" {
+		log.Debug().Str("path", configPath).Msg("Using config file provided by --config flag")
+		exists, err := Exists(configPath)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", fmt.Errorf("config file provided by --config flag does not exist: %q", configPath)
+		}
+		return configPath, nil
+	}
 
-	// Data directory non-existence is a fatal error
-	dirExists, err := FileExists(DataDir)
+	configPath = os.Getenv("GOMAS_CONFIG")
+	if configPath != "" {
+		log.Debug().Str("path", configPath).Msg("Using config file provided by environment")
+		exists, err := Exists(configPath)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", fmt.Errorf("config file provided by environment does not exist: %q", configPath)
+		}
+		return configPath, nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	for _, p := range []string{wd, home} {
+		if configPath != "" {
+			break
+		}
+
+		path := filepath.Join(p, ConfigFilename)
+		log.Debug().Str("path", path).Msg("Searching for config file")
+		exists, err := Exists(path)
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			configPath = path
+		}
+	}
+
+	if configPath == "" {
+		return "", fmt.Errorf("could not find config file anywhere")
+	}
+
+	return configPath, nil
+}
+
+func InitConfig() error {
+	configPath, err := FindConfigFile()
+	if err != nil {
+		return err
+	}
+
+	log.Info().Str("path", configPath).Msg("Reading config file")
+
+	configFile, err := os.Open(configPath)
+	if err != nil {
+		return err
+	}
+	defer configFile.Close()
+
+	var c ConfigTOML
+	if err := toml.NewDecoder(configFile).Decode(&c); err != nil {
+		return err
+	}
+
+	log.Info().Interface("config", c).Msg("Config loaded")
+
+	if c.DataDir == "" {
+		return fmt.Errorf("missing required config field data_dir")
+	}
+	abs, err := filepath.Abs(c.DataDir)
+	if err != nil {
+		return err
+	}
+	dirExists, err := Exists(abs)
 	if err != nil {
 		return err
 	}
 	if !dirExists {
-		return errors.New("data directory does not exist")
+		return fmt.Errorf("data directory not found: %q", abs)
 	}
 
-	// Config file non-existence is only a log warning
-	configPath := filepath.Join(DataDir, ConfigFilename)
-	configExists, err := FileExists(configPath)
-	if err != nil {
-		return err
-	}
-	if !configExists {
-		log.Warn().Str("path", configPath).Msg("Config file not found, using defaults")
-	} else {
-		configFile, err := os.Open(configPath)
-		if err != nil {
-			return err
-		}
-		defer configFile.Close()
-
-		var c GomasConfig
-
-		if err := json.NewDecoder(configFile).Decode(&c); err != nil {
-			return err
-		}
-
-		remarshalled, err := json.Marshal(c)
-		if err != nil {
-			log.Panic().Err(err).Msg("Could not re-marshal config object (this should be impossible)")
-		}
-
-		setConfig(c)
-
-		log.Info().
-			Str("path", configPath).
-			RawJSON("config", remarshalled).
-			Msg("Loaded config file")
-	}
+	configMutex.Lock()
+	absDataDir = abs
+	config = c
+	configMutex.Unlock()
 
 	return nil
 }
 
-func GetConfigBias() time.Duration {
+func GetDataDir() string {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	return absDataDir
+}
+
+func GetPinout() []int {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+
+	cloned := make([]int, len(config.Pinout))
+	copy(cloned, config.Pinout)
+	return cloned
+}
+
+func GetBias() time.Duration {
 	configMutex.RLock()
 	defer configMutex.RUnlock()
 
@@ -154,7 +193,7 @@ func GetConfigBias() time.Duration {
 	return time.Millisecond * 100
 }
 
-func GetConfigRestPeriod() time.Duration {
+func GetRestPeriod() time.Duration {
 	configMutex.RLock()
 	defer configMutex.RUnlock()
 
@@ -164,7 +203,7 @@ func GetConfigRestPeriod() time.Duration {
 	return time.Second * 5
 }
 
-func GetConfigFramesPerSecond() int {
+func GetFramesPerSecond() int {
 	configMutex.RLock()
 	defer configMutex.RUnlock()
 
@@ -174,7 +213,7 @@ func GetConfigFramesPerSecond() int {
 	return 120
 }
 
-func GetConfigSpeakerBuffer() time.Duration {
+func GetSpeakerBuffer() time.Duration {
 	configMutex.RLock()
 	defer configMutex.RUnlock()
 

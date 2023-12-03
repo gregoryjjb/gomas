@@ -28,13 +28,20 @@ var (
 	commitHash         string
 )
 
+var ConfigFlag string
+
 func main() {
 	ts, _ := strconv.ParseInt(buildUnixTimestamp, 10, 64)
 	buildTime := time.Unix(ts, 0)
 
 	versionFlag := flag.Bool("version", false, "Print version")
 	systemdFlag := flag.Bool("systemd", false, "Print systemd service file")
+	cf := flag.String("config", "", "Path to config file")
 	flag.Parse()
+
+	if cf != nil {
+		ConfigFlag = *cf
+	}
 
 	if *versionFlag {
 		fmt.Println("Gomas version:", version)
@@ -60,7 +67,7 @@ func main() {
 	}
 
 	// Initialize GPIO
-	if err := gpio.Init(GetConfig().Pinout); err != nil {
+	if err := gpio.Init(GetPinout()); err != nil {
 		log.Err(err).Msg("GPIO initialization failed")
 	}
 

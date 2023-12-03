@@ -71,13 +71,11 @@ func NewShow(id string) *LegacyShow {
 var ErrNoAudioFile = errors.New("audio file does not exist")
 
 func ShowDir() string {
-	result, _ := filepath.Abs(filepath.Join(DataDir, "projects"))
-	return result
+	return filepath.Join(GetDataDir(), "projects")
 }
 
 func AudioDir() string {
-	result, _ := filepath.Abs(filepath.Join(DataDir, "audio"))
-	return result
+	return filepath.Join(GetDataDir(), "audio")
 }
 
 func ValidateShowID(id string) error {
@@ -103,7 +101,8 @@ func TrimExtension(path string) string {
 	return filename[0 : len(filename)-len(extension)]
 }
 
-func FileExists(path string) (bool, error) {
+// Exists returns true if the path points to an existing file OR folder
+func Exists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
 		return true, nil
@@ -130,7 +129,7 @@ type Playlist struct {
 }
 
 func ListPlaylists() ([]Playlist, error) {
-	path := filepath.Join(DataDir, "playlists.json")
+	path := filepath.Join(GetDataDir(), "playlists.json")
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -213,12 +212,12 @@ func ListShows() ([]*ShowInfo, error) {
 }
 
 func showIDToPath(id string) string {
-	return filepath.Join(DataDir, "projects", JoinExtension(id, "json"))
+	return filepath.Join(GetDataDir(), "projects", JoinExtension(id, "json"))
 }
 
 func ShowExists(id string) bool {
 	showPath := showIDToPath(id)
-	exists, _ := FileExists(showPath)
+	exists, _ := Exists(showPath)
 	return exists
 }
 
@@ -252,11 +251,8 @@ func SaveShow(id string, show *LegacyShow) error {
 }
 
 func ShowAudioPath(id string) (string, error) {
-	audioPath, err := filepath.Abs(filepath.Join(DataDir, "audio", JoinExtension(id, "mp3")))
-	if err != nil {
-		return "", err
-	}
-	exists, err := FileExists(audioPath)
+	audioPath := filepath.Join(GetDataDir(), "audio", JoinExtension(id, "mp3"))
+	exists, err := Exists(audioPath)
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +264,7 @@ func ShowAudioPath(id string) (string, error) {
 }
 
 func SaveShowAudio(id string, newAudio io.Reader) error {
-	audioPath := filepath.Join(DataDir, "audio", JoinExtension(id, "mp3"))
+	audioPath := filepath.Join(GetDataDir(), "audio", JoinExtension(id, "mp3"))
 	file, err := os.OpenFile(audioPath, os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err

@@ -184,7 +184,7 @@ func NewAudioPlayer() *AudioPlayer {
 }
 
 func (ap *AudioPlayer) Init() error {
-	buff := GetConfigSpeakerBuffer()
+	buff := GetSpeakerBuffer()
 	return speaker.Init(sampleRate, sampleRate.N(buff))
 }
 
@@ -266,7 +266,7 @@ func newPlayerInternals() (*playerInternals, error) {
 	return &playerInternals{
 		state:          StateIdle,
 		audioPlayer:    ap,
-		keyframePlayer: &KeyframePlayer{bias: GetConfigBias()},
+		keyframePlayer: &KeyframePlayer{bias: GetBias()},
 		ps:             pubsub.New[PlayerEvent](),
 	}, nil
 }
@@ -322,12 +322,12 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 
 		case StateResting:
 			t := time.Since(pi.startTime)
-			if t >= GetConfigRestPeriod() {
+			if t >= GetRestPeriod() {
 				pi.playNextShow()
 			}
 		}
 
-		fps := GetConfigFramesPerSecond()
+		fps := GetFramesPerSecond()
 		delay := time.Second / time.Duration(fps)
 		time.Sleep(delay)
 	}
@@ -420,7 +420,7 @@ func (pi *playerInternals) handleShowEnd() {
 
 	if pi.queue.Length() > 1 {
 		plog.Info().
-			Str("period", GetConfigRestPeriod().String()).
+			Str("period", GetRestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
 			Msg("Resting")
 
