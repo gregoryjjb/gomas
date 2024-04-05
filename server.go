@@ -3,9 +3,11 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gregoryjjb/gomas/gpio"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,36 +17,53 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-/////////////////////
-// Response helpers
+////////////////
+// API helpers
 
-func RespondInternalServiceError(w http.ResponseWriter, err error) {
-	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte(err.Error()))
-}
-
-func RespondNotFoundError(w http.ResponseWriter, body string) {
-	w.WriteHeader(http.StatusNotFound)
-	if body == "" {
-		body = "Not found"
+func NameParam(r *http.Request) (string, error) {
+	v := chi.URLParam(r, "name")
+	if v == "" {
+		return "", fmt.Errorf("name is required")
 	}
-	RespondText(w, body)
+	if err := ValidateShowName(v); err != nil {
+		return "", err
+	}
+	return v, nil
 }
 
-func RespondBadRequest(w http.ResponseWriter, message string) {
-	w.WriteHeader(http.StatusBadRequest)
-	RespondText(w, message)
+var ErrValidation = errors.New("validation failed")
+
+func validationErr(err error) error {
+	return fmt.Errorf("%w: %w", ErrValidation, err)
 }
 
-func RespondText(w http.ResponseWriter, body string) {
-	w.Write([]byte(body))
+type HandlerWithError func(http.ResponseWriter, *http.Request) error
+
+func (h HandlerWithError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if err := h(w, r); err != nil {
+		var status int
+
+		switch {
+		case
+			errors.Is(err, os.ErrNotExist),
+			errors.Is(err, ErrNotExist):
+			status = http.StatusNotFound
+		case
+			errors.Is(err, ErrValidation),
+			errors.Is(err, ErrExists):
+			status = http.StatusBadRequest
+		default:
+			status = http.StatusInternalServerError
+		}
+
+		w.WriteHeader(status)
+		w.Write([]byte(err.Error()))
+	}
 }
 
-func RespondJSON(w http.ResponseWriter, body any) {
+func RespondJSON(w http.ResponseWriter, body any) error {
 	w.Header().Add("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		RespondInternalServiceError(w, err)
-	}
+	return json.NewEncoder(w).Encode(body)
 }
 
 // FileServer conveniently sets up a http.FileServer handler to serve
@@ -55,7 +74,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	}
 
 	if path != "/" && path[len(path)-1] != '/' {
-		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
+		r.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
 		path += "/"
 	}
 	path += "*"
@@ -76,221 +95,219 @@ func StartServer(player *Player) error {
 	}
 
 	r := chi.NewRouter()
+	get := func(pattern string, handler HandlerWithError) {
+		r.Method(http.MethodGet, pattern, handler)
+	}
+	post := func(pattern string, handler HandlerWithError) {
+		r.Method(http.MethodPost, pattern, handler)
+	}
+	put := func(pattern string, handler HandlerWithError) {
+		r.Method(http.MethodPut, pattern, handler)
+	}
 
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.NoCache)
 	r.Use(LoggerMiddleware(&log.Logger))
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+	get("/", func(w http.ResponseWriter, r *http.Request) error {
 		shows, err := ListShows()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
 		playlists, err := ListPlaylists()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
 		pagedata := struct {
-			Shows     []*ShowInfo
+			Shows     []string
 			Playlists []Playlist
 			Exist     map[string]bool
 		}{shows, playlists, make(map[string]bool)}
 
 		for _, show := range shows {
-			pagedata.Exist[show.ID] = true
+			pagedata.Exist[show] = true
 		}
 
 		tmpl, err := GetTemplates()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
-		tmpl.ExecuteTemplate(w, "index.html", pagedata)
+		return tmpl.ExecuteTemplate(w, "index.html", pagedata)
 	})
 
-	r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
+	get("/config", func(w http.ResponseWriter, r *http.Request) error {
 		t, err := GetTemplates()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
-		t.ExecuteTemplate(w, "config.html", struct{ Version string }{version})
+		return t.ExecuteTemplate(w, "config.html", struct{ Version string }{version})
 	})
 
 	// Cram the legacy show editor in
 	FileServer(r, "/editor", GetEditorFS())
 
-	r.Get("/logs", func(w http.ResponseWriter, r *http.Request) {
+	get("/logs", func(w http.ResponseWriter, r *http.Request) error {
 		t, err := GetTemplates()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
-		t.ExecuteTemplate(w, "logs.html", BufferedLogsArray())
+		return t.ExecuteTemplate(w, "logs.html", BufferedLogsArray())
 	})
 
 	// For testing panics
-	r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+	get("/panic", func(w http.ResponseWriter, r *http.Request) error {
 		panic("oh no what happened!")
 	})
 
-	api := chi.NewRouter()
-
 	// GET shows
-	api.Get("/shows", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/shows", func(w http.ResponseWriter, r *http.Request) error {
 		shows, err := ListShows()
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
-		RespondJSON(w, shows)
+		return RespondJSON(w, shows)
 	})
 
 	// GET single show
-	api.Get("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		show, err := LoadShow(id)
+	get("/api/shows/{name}", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+		show, err := ReadShowData(name)
 		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
+			return err
 		}
 
-		RespondJSON(w, show)
+		return RespondJSON(w, show)
 	})
 
-	// POST new shot
-	api.Post("/shows", func(w http.ResponseWriter, r *http.Request) {
+	// POST new show
+	post("/api/shows", func(w http.ResponseWriter, r *http.Request) error {
 		err := r.ParseMultipartForm(32 << 20) // 32MB
 		if err != nil {
-			RespondBadRequest(w, err.Error())
-			return
+			return validationErr(err)
 		}
 
-		id := r.PostFormValue("id")
-		if id == "" {
-			RespondBadRequest(w, "id is required")
-			return
-		}
-		if err := ValidateShowID(id); err != nil {
-			RespondBadRequest(w, err.Error())
-			return
-		}
-		if ShowExists(id) {
-			RespondBadRequest(w, fmt.Sprintf("show already exists: %s", id))
-			return
+		name := r.PostFormValue("name")
+		if err := ShowNotExists(name); err != nil {
+			return err
 		}
 
 		audioFile, h, err := r.FormFile("audio_file")
 		if err != nil {
-			RespondBadRequest(w, "audio_file is required")
-			return
+			return validationErr(err)
 		}
 		if filepath.Ext(h.Filename) != ".mp3" {
-			RespondBadRequest(w, "audio_file must be an .mp3")
-			return
+			return validationErr(errors.New("audio_file must be an .mp3"))
 		}
 
-		show := NewShow(id)
-		if err := SaveShow(id, show); err != nil {
-			RespondInternalServiceError(w, err)
-			return
-		}
-		if err := SaveShowAudio(id, audioFile); err != nil {
-			RespondInternalServiceError(w, err)
-			return
+		data := NewProjectData(8)
+
+		if err := CreateShow(name, data, audioFile); err != nil {
+			return err
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		return nil
+	})
+
+	// POST a shmr file, creating a new show
+	post("/api/upload", func(w http.ResponseWriter, r *http.Request) error {
+		r.ParseMultipartForm(50 << 20) // 50 MiB max
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			return validationErr(err)
+		}
+		defer file.Close()
+
+		return ImportShmr(file, header)
+	})
+
+	// GET a shmr file from existing show
+	get("/api/export/{name}", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+		if err := ShowExists(name); err != nil {
+			return err
+		}
+
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.shmr\"", name))
+		return ExportShmr(name, w)
 	})
 
 	// PUT single show
-	api.Put("/shows/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		if id == "" {
-			RespondNotFoundError(w, "show id required")
-			return
+	put("/api/shows/{name}", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+		if err := ShowExists(name); err != nil {
+			return err
 		}
 
-		var show LegacyShow
+		var show ProjectData
 		if err := json.NewDecoder(r.Body).Decode(&show); err != nil {
-			RespondInternalServiceError(w, err)
-			return
-		}
-
-		if !ShowExists(id) {
-			RespondNotFoundError(w, fmt.Sprintf("show '%s' not found", id))
-			return
+			return err
 		}
 
 		if len(show.Tracks) == 0 {
-			RespondBadRequest(w, "show had zero tracks, refusing to save!")
-			return
+			return fmt.Errorf("%w: show had zero tracks, refusing to save", ErrValidation)
 		}
 
-		if err := SaveShow(id, &show); err != nil {
-			RespondInternalServiceError(w, err)
-			return
-		}
+		return WriteShowData(name, show)
+	})
 
-		w.WriteHeader(http.StatusNoContent)
+	// PUT rename a show
+	put("/api/rename", func(w http.ResponseWriter, r *http.Request) error {
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+
+		return RenameShow(from, to)
 	})
 
 	// GET audio file for single show
-	api.Get("/audio/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		audioPath, err := ShowAudioPath(id)
+	get("/api/audio/{name}", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+		audioPath, err := ShowAudioPath(name)
 		if err != nil {
-			RespondNotFoundError(w, "audio not found")
-			return
+			return err
 		}
 		http.ServeFile(w, r, audioPath)
+		return nil
 	})
 
 	// GET Playlists
-	api.Get("/playlists", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/playlists", func(w http.ResponseWriter, r *http.Request) error {
 		playlists, err := ListPlaylists()
 		if err != nil {
-			RespondInternalServiceError(w, err)
+			return err
 		}
 
-		RespondJSON(w, playlists)
+		return RespondJSON(w, playlists)
 	})
 
 	// Play single show
-	api.Get("/play/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-
-		exists, err := ShowIsPlayable(id)
-		if err != nil {
-			RespondInternalServiceError(w, err)
-			return
-		}
-		if !exists {
-			RespondNotFoundError(w, fmt.Sprintf("show '%s' does not exist", id))
-			return
+	get("/api/play/{name}", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+		if err := ShowExists(name); err != nil {
+			return err
 		}
 
-		player.Play(id)
+		player.Play(name)
 
 		w.WriteHeader(http.StatusNoContent)
+		return nil
 	})
 
 	// Play all shows
-	api.Get("/playall", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/playall", func(w http.ResponseWriter, r *http.Request) error {
 		player.PlayAll()
 		w.WriteHeader(http.StatusNoContent)
+		return nil
 	})
 
 	// Set static state
-	api.Get("/static", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/static", func(w http.ResponseWriter, r *http.Request) error {
 		state := r.URL.Query().Get("value") == "1"
 
 		player.Stop()
@@ -300,19 +317,20 @@ func StartServer(player *Player) error {
 		gpio.SetAll(state)
 
 		w.WriteHeader(http.StatusNoContent)
+		return nil
 	})
 
 	// Play next show in the queue
-	api.Get("/next", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/next", func(w http.ResponseWriter, r *http.Request) error {
 		player.Next()
 		w.WriteHeader(http.StatusNoContent)
+		return nil
 	})
 
-	api.Get("/logs", func(w http.ResponseWriter, r *http.Request) {
+	get("/api/logs", func(w http.ResponseWriter, r *http.Request) error {
 		BufferedLogs(w)
+		return nil
 	})
-
-	r.Mount("/api", api)
 
 	r.Get("/ws", createWebsocketHandler(player))
 
@@ -321,7 +339,7 @@ func StartServer(player *Player) error {
 		return err
 	}
 	FileServer(r, "/", staticFS)
-	
+
 	chi.Walk(r, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 		log.Debug().Str("method", method).Str("route", route).Int("middleware_count", len(middlewares)).Msg("Registered route")
 		return nil

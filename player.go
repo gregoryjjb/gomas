@@ -125,16 +125,17 @@ func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
 // }
 
 type KeyframePlayer struct {
-	frames []*FlatKeyframe
+	frames []FlatKeyframe
 	index  int64
 }
 
 func (kp *KeyframePlayer) Load(id string) error {
-	kfs, err := LoadFlatKeyframes(id)
-
+	show, err := ReadShowData(id)
 	if err != nil {
 		return err
 	}
+
+	kfs := show.FlatKeyframes()
 
 	plog.Debug().Int("length", len(kfs)).Msg("loaded keyframes")
 
@@ -394,19 +395,11 @@ func (pi *playerInternals) playAllShows() error {
 	if err != nil {
 		return fmt.Errorf("cannot play all: %e", err)
 	}
-
-	var ids []string
-	for _, show := range shows {
-		if show.HasAudio {
-			ids = append(ids, show.ID)
-		}
-	}
-
-	if len(ids) == 0 {
+	if len(shows) == 0 {
 		return errors.New("cannot play all: no playable shows found")
 	}
 
-	pi.queue.Replace(ids)
+	pi.queue.Replace(shows)
 	if err := pi.playShow(pi.queue.Current()); err != nil {
 		return err
 	}

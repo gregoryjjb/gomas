@@ -2,11 +2,11 @@ GET http://localhost:1225/api/shows
 
 ###
 
-GET http://localhost:1225/api/shows/christmas_eve_sarajevo
+GET http://localhost:1225/api/shows/carol_of_the_bells_69
 
 ###
 
-GET http://localhost:1225/api/play/christmas_eve_sarajevo
+GET http://localhost:1225/api/play/Carol%20of%20the%20Bells
 
 ###
 
@@ -27,3 +27,7 @@ GET http://localhost:1225/panic
 ###
 
 GET http://localhost:1225/api/playlists
+
+###
+
+PUT http://localhost:1225/api/rename?from=carol_of_the_bells_69

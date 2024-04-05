@@ -1,105 +1,45 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"strings"
 )
 
-type LegacyShow struct {
-	ProjectData *LegacyProjectData `json:"projectData"`
-	Tracks      []*LegacyTrack     `json:"tracks"`
-}
-
-type LegacyProjectData struct {
-	Name string `json:"name"`
-	ID   string `json:"id"`
-}
-
-type LegacyTrack struct {
-	ID        int               `json:"id"`
-	Keyframes []*LegacyKeyframe `json:"keyframes"`
-}
-
-type LegacyKeyframe struct {
-	Channel  int         `json:"channel"`
-	Time     float64     `json:"time"`
-	OldTime  float64     `json:"oldTime"`
-	State    LegacyState `json:"state"`
-	Selected bool        `json:"selected"`
-}
-
-type LegacyState int
-
-func (state *LegacyState) UnmarshalJSON(data []byte) error {
-	asString := string(data)
-	if asString == "1" || asString == "true" {
-		*state = 1
-	} else if asString == "0" || asString == "false" {
-		*state = 0
-	} else {
-		return fmt.Errorf("state unmarshal error: invalid input %s", asString)
-	}
-	return nil
-}
-
-func NewShow(id string) *LegacyShow {
-	show := &LegacyShow{
-		ProjectData: &LegacyProjectData{
-			ID:   id,
-			Name: id,
-		},
-	}
-
-	// Hack: hardcoded 8 channels
-	for i := 0; i < 8; i++ {
-		show.Tracks = append(show.Tracks, &LegacyTrack{
-			ID:        i,
-			Keyframes: []*LegacyKeyframe{},
-		})
-	}
-
-	return show
-}
-
-var ErrNoAudioFile = errors.New("audio file does not exist")
+var (
+	ErrNotExist = errors.New("doesn't exist")
+	ErrExists   = errors.New("already exists")
+)
 
 func ShowDir() string {
 	return filepath.Join(GetDataDir(), "projects")
 }
 
-func AudioDir() string {
-	return filepath.Join(GetDataDir(), "audio")
-}
+var badNameRegex = regexp.MustCompile(`[<>:"/\\|?\*]`)
 
-func ValidateShowID(id string) error {
-	m, _ := regexp.MatchString(`^[0-9A-Za-z_\- ]+$`, id)
-	if !m {
-		return fmt.Errorf("Show name must contain only letters, numbers, dashes, underscores, and spaces")
+func ValidateShowName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: show name cannot be blank", ErrValidation)
 	}
+
+	m := badNameRegex.FindAllString(name, -1)
+
+	if len(m) > 0 {
+		return fmt.Errorf("%w: show name contains disallowed characters %s", ErrValidation, strings.Join(m, " "))
+	}
+
 	return nil
 }
 
 ////////////
 // Helpers
-
-func JoinExtension(base string, ext string) string {
-	return fmt.Sprintf("%s.%s", base, ext)
-}
-
-// Removes the extension from the given path or filename
-func TrimExtension(path string) string {
-	filename := filepath.Base(path)
-	extension := filepath.Ext(filename)
-
-	return filename[0 : len(filename)-len(extension)]
-}
 
 // Exists returns true if the path points to an existing file OR folder
 func Exists(path string) (bool, error) {
@@ -139,14 +79,14 @@ func ListPlaylists() ([]Playlist, error) {
 	}
 	defer file.Close()
 
-	shows, err := ListShows()
-	if err != nil {
-		return nil, err
-	}
-	showset := make(map[string]ShowInfo)
-	for _, show := range shows {
-		showset[show.ID] = *show
-	}
+	// shows, err := ListShows()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// showset := make(map[string]ShowInfo)
+	// for _, show := range shows {
+	// 	showset[show.ID] = *show
+	// }
 
 	var data []Playlist
 	if err := json.NewDecoder(file).Decode(&data); err != nil {
@@ -168,228 +108,206 @@ func ListPlaylists() ([]Playlist, error) {
 //////////
 // Shows
 
-type ShowInfo struct {
-	ID       string `json:"id"`
-	HasAudio bool   `json:"hasAudio"`
-}
-
-func ListShows() ([]*ShowInfo, error) {
+func ListShows() ([]string, error) {
 	entries, err := os.ReadDir(ShowDir())
 	if err != nil {
 		return nil, err
 	}
 
-	audioEntries, err := os.ReadDir(AudioDir())
-	if err != nil {
-		return nil, err
-	}
-
-	audioSet := make(map[string]bool)
-	for _, audioEntry := range audioEntries {
-		audioSet[audioEntry.Name()] = true
-	}
-
-	var results []*ShowInfo
-
+	var shows []string
 	for _, entry := range entries {
-		filename := entry.Name()
-		extension := filepath.Ext(filename)
-
-		if extension == ".json" {
-			id := TrimExtension(filename)
-
-			expectedAudioName := JoinExtension(id, "mp3")
-			hasAudio := audioSet[expectedAudioName]
-
-			results = append(results, &ShowInfo{
-				ID:       id,
-				HasAudio: hasAudio,
-			})
+		if entry.IsDir() {
+			shows = append(shows, entry.Name())
 		}
 	}
 
-	return results, nil
+	return shows, nil
 }
 
-func showIDToPath(id string) string {
-	return filepath.Join(GetDataDir(), "projects", JoinExtension(id, "json"))
-}
-
-func ShowExists(id string) bool {
-	showPath := showIDToPath(id)
-	exists, _ := Exists(showPath)
-	return exists
-}
-
-func LoadShow(id string) (*LegacyShow, error) {
-	showPath := showIDToPath(id)
-
-	file, err := os.Open(showPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var data LegacyShow
-
-	if err := json.NewDecoder(file).Decode(&data); err != nil {
-		return nil, err
-	}
-
-	return &data, nil
-}
-
-func SaveShow(id string, show *LegacyShow) error {
-	showPath := showIDToPath(id)
-
-	file, err := os.OpenFile(showPath, os.O_CREATE, os.ModePerm)
-	if err != nil {
+// ShowExists returns an error if the named show does not exist
+func ShowExists(name string) error {
+	if err := ValidateShowName(name); err != nil {
 		return err
 	}
-	defer file.Close()
-	return json.NewEncoder(file).Encode(show)
+
+	info, err := os.Stat(filepath.Join(ShowDir(), name))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("show %q %w", name, ErrNotExist)
+		}
+
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("show %q is not a directory", name)
+	}
+
+	return nil
 }
 
-func ShowAudioPath(id string) (string, error) {
-	audioPath := filepath.Join(GetDataDir(), "audio", JoinExtension(id, "mp3"))
-	exists, err := Exists(audioPath)
-	if err != nil {
-		return "", err
+// ShowNotExists returns an error if the named show already exists
+func ShowNotExists(name string) error {
+	if err := ValidateShowName(name); err != nil {
+		return err
 	}
-	if !exists {
-		return "", ErrNoAudioFile // fmt.Errorf("audio file does not exist: %s", audioPath)
+
+	if _, err := os.Stat(filepath.Join(ShowDir(), name)); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return fmt.Errorf("%w: show %q", ErrExists, name)
+		}
+		return err
+	}
+
+	return nil
+}
+
+func ShowAudioPath(name string) (string, error) {
+	audioPath := filepath.Join(ShowDir(), name, "audio.mp3")
+	if _, err := os.Stat(audioPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("audio for show %q %w", name, ErrNotExist)
+		}
+		return "", err
 	}
 
 	return audioPath, nil
 }
 
-func SaveShowAudio(id string, newAudio io.Reader) error {
-	audioPath := filepath.Join(GetDataDir(), "audio", JoinExtension(id, "mp3"))
-	file, err := os.OpenFile(audioPath, os.O_CREATE, os.ModePerm)
+// CreateShow creates a new show
+func CreateShow(name string, data ProjectData, audio io.Reader) error {
+	if err := ShowNotExists(name); err != nil {
+		return err
+	}
+
+	if err := os.Mkdir(filepath.Join(ShowDir(), name), 0755); err != nil {
+		return err
+	}
+
+	if err := WriteShowData(name, data); err != nil {
+		return err
+	}
+
+	if err := WriteAudio(name, audio); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WriteShowData(name string, data ProjectData) error {
+	if err := ShowExists(name); err != nil {
+		return err
+	}
+
+	f, err := os.Create(filepath.Join(ShowDir(), name, "data.json"))
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer f.Close()
 
-	_, err = io.Copy(file, newAudio)
-	return err
-}
-
-func ShowIsPlayable(id string) (bool, error) {
-	if !ShowExists(id) {
-		return false, nil
+	if err := json.NewEncoder(f).Encode(data); err != nil {
+		return err
 	}
 
-	audioPath, err := ShowAudioPath(id)
-	if err == ErrNoAudioFile {
-		return false, nil
-	} else if err != nil {
-		return false, err
+	return f.Sync()
+}
+
+func WriteAudio(name string, audio io.Reader) error {
+	if err := ShowExists(name); err != nil {
+		return err
 	}
 
-	return audioPath != "", nil
-}
-
-type FlatKeyframe struct {
-	Time   float64
-	States []bool
-}
-
-// Sortable keyframes
-type StandaloneKeyframe struct {
-	Time       float64
-	State      bool
-	TrackIndex int
-}
-type StandaloneKeyframes []*StandaloneKeyframe
-
-func (kfs StandaloneKeyframes) Len() int {
-	return len(kfs)
-}
-func (kfs StandaloneKeyframes) Swap(i, j int) {
-	kfs[i], kfs[j] = kfs[j], kfs[i]
-}
-func (kfs StandaloneKeyframes) Less(i, j int) bool {
-	return kfs[i].Time < kfs[j].Time
-}
-
-func CloseTogether(a float64, b float64) bool {
-	return math.Abs(a-b) < 0.001
-}
-
-func LoadFlatKeyframes(id string) ([]*FlatKeyframe, error) {
-	show, err := LoadShow(id)
+	f, err := os.Create(filepath.Join(ShowDir(), name, "audio.mp3"))
 	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, audio); err != nil {
+		return err
+	}
+
+	return f.Sync()
+}
+
+func ReadShowData(name string) (ProjectData, error) {
+	if err := ShowExists(name); err != nil {
+		return ProjectData{}, err
+	}
+
+	f, err := os.Open(filepath.Join(ShowDir(), name, "data.json"))
+	if err != nil {
+		return ProjectData{}, err
+	}
+	defer f.Close()
+
+	var data ProjectData
+	err = json.NewDecoder(f).Decode(&data)
+	return data, err
+}
+
+func ReadAudio(name string) (*os.File, error) {
+	if err := ShowExists(name); err != nil {
 		return nil, err
 	}
 
-	var totalKeyframeCount int
-	for _, track := range show.Tracks {
-		totalKeyframeCount += len(track.Keyframes)
+	return os.Open(filepath.Join(ShowDir(), name, "audio.mp3"))
+}
+
+// TODO: create a better interface between the upload
+func ImportShmr(file multipart.File, header *multipart.FileHeader) error {
+	z, err := zip.NewReader(file, header.Size)
+	if err != nil {
+		return err
 	}
 
-	sourceKeyframes := make([]*StandaloneKeyframe, 0, totalKeyframeCount)
-	for trackIndex, track := range show.Tracks {
-		for _, keyframe := range track.Keyframes {
-			sourceKeyframes = append(sourceKeyframes, &StandaloneKeyframe{
-				Time:       keyframe.Time,
-				State:      keyframe.State == 1,
-				TrackIndex: trackIndex,
-			})
-		}
+	dataFile, err := z.Open("data.json")
+	if err != nil {
+		return err
 	}
-	sort.Sort(StandaloneKeyframes(sourceKeyframes))
+	defer dataFile.Close()
 
-	trackCount := len(show.Tracks)
-
-	var flatKeyframes []*FlatKeyframe
-	kf := &FlatKeyframe{
-		Time:   0,
-		States: make([]bool, trackCount),
+	audioFile, err := z.Open("audio.mp3")
+	if err != nil {
+		return err
 	}
 
-	pushCurrentKeyframe := func(newTime float64) {
-		flatKeyframes = append(flatKeyframes, kf)
-
-		newStates := make([]bool, len(kf.States))
-		copy(newStates, kf.States)
-
-		newKF := &FlatKeyframe{
-			Time:   newTime,
-			States: newStates,
-		}
-		kf = newKF
+	var data ProjectData
+	if err := json.NewDecoder(dataFile).Decode(&data); err != nil {
+		return err
 	}
 
-	for _, sourceKeyframe := range sourceKeyframes {
-		// Times are far apart, need to clone the current keyframe
-		if !CloseTogether(sourceKeyframe.Time, kf.Time) {
-			pushCurrentKeyframe(sourceKeyframe.Time)
-		}
-
-		kf.States[sourceKeyframe.TrackIndex] = sourceKeyframe.State
+	if data.Tracks == nil {
+		return fmt.Errorf("no tracks present")
 	}
 
-	// Debug: dump keyframes to file
-	// Create a file for writing
-	// f, _ := os.Create("./debug.txt")
-	// // Create a writer
-	// w := bufio.NewWriter(f)
-	// for _, kf := range flatKeyframes {
-	// 	stateStrings := make([]string, 0, len(kf.States))
-	// 	for _, s := range kf.States {
-	// 		v := "0"
-	// 		if s {
-	// 			v = "1"
-	// 		}
-	// 		stateStrings = append(stateStrings, v)
-	// 	}
-	// 	line := fmt.Sprintf("%f,%s\n", kf.Time, strings.Join(stateStrings, ","))
-	// 	w.WriteString(line)
-	// }
-	// // Very important to invoke after writing a large number of lines
-	// w.Flush()
-	// f.Close()
+	name := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
 
-	return flatKeyframes, nil
+	return CreateShow(name, data, audioFile)
+}
+
+// ExportShmr bundles the specified show and writes it to w
+func ExportShmr(name string, w io.Writer) error {
+	z := zip.NewWriter(w)
+
+	showFS := os.DirFS(filepath.Join(ShowDir(), name))
+	if err := z.AddFS(showFS); err != nil {
+		return err
+	}
+
+	return z.Close()
+}
+
+func RenameShow(from, to string) error {
+	if err := ShowExists(from); err != nil {
+		return err
+	}
+	if err := ShowNotExists(to); err != nil {
+		return err
+	}
+
+	fromPath := filepath.Join(ShowDir(), from)
+	toPath := filepath.Join(ShowDir(), to)
+
+	return os.Rename(fromPath, toPath)
 }
