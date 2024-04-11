@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/afero"
 )
 
 ////////////////
@@ -46,6 +47,7 @@ func (h HandlerWithError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case
 			errors.Is(err, os.ErrNotExist),
+			errors.Is(err, afero.ErrFileNotFound),
 			errors.Is(err, ErrNotExist):
 			status = http.StatusNotFound
 		case
@@ -87,7 +89,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-func StartServer(player *Player) error {
+func StartServer(player *Player, storage *Storage) error {
 	// Ensure templates parse correctly
 	_, err := GetTemplates()
 	if err != nil {
@@ -110,12 +112,12 @@ func StartServer(player *Player) error {
 	r.Use(LoggerMiddleware(&log.Logger))
 
 	get("/", func(w http.ResponseWriter, r *http.Request) error {
-		shows, err := ListShows()
+		shows, err := storage.ListShows()
 		if err != nil {
 			return err
 		}
 
-		playlists, err := ListPlaylists()
+		playlists, err := storage.ListPlaylists()
 		if err != nil {
 			return err
 		}
@@ -166,7 +168,7 @@ func StartServer(player *Player) error {
 
 	// GET shows
 	get("/api/shows", func(w http.ResponseWriter, r *http.Request) error {
-		shows, err := ListShows()
+		shows, err := storage.ListShows()
 		if err != nil {
 			return err
 		}
@@ -177,7 +179,7 @@ func StartServer(player *Player) error {
 	// GET single show
 	get("/api/shows/{name}", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
-		show, err := ReadShowData(name)
+		show, err := storage.ReadShowData(name)
 		if err != nil {
 			return err
 		}
@@ -193,7 +195,7 @@ func StartServer(player *Player) error {
 		}
 
 		name := r.PostFormValue("name")
-		if err := ShowNotExists(name); err != nil {
+		if err := storage.ShowNotExists(name); err != nil {
 			return err
 		}
 
@@ -207,7 +209,7 @@ func StartServer(player *Player) error {
 
 		data := NewProjectData(8)
 
-		if err := CreateShow(name, data, audioFile); err != nil {
+		if err := storage.CreateShow(name, data, audioFile); err != nil {
 			return err
 		}
 
@@ -224,24 +226,24 @@ func StartServer(player *Player) error {
 		}
 		defer file.Close()
 
-		return ImportShmr(file, header)
+		return storage.ImportShmr(file, header)
 	})
 
 	// GET a shmr file from existing show
 	get("/api/export/{name}", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
-		if err := ShowExists(name); err != nil {
+		if err := storage.ShowExists(name); err != nil {
 			return err
 		}
 
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.shmr\"", name))
-		return ExportShmr(name, w)
+		return storage.ExportShmr(name, w)
 	})
 
 	// PUT single show
 	put("/api/shows/{name}", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
-		if err := ShowExists(name); err != nil {
+		if err := storage.ShowExists(name); err != nil {
 			return err
 		}
 
@@ -254,7 +256,7 @@ func StartServer(player *Player) error {
 			return fmt.Errorf("%w: show had zero tracks, refusing to save", ErrValidation)
 		}
 
-		return WriteShowData(name, show)
+		return storage.WriteShowData(name, show)
 	})
 
 	// PUT rename a show
@@ -262,23 +264,29 @@ func StartServer(player *Player) error {
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 
-		return RenameShow(from, to)
+		return storage.RenameShow(from, to)
 	})
 
 	// GET audio file for single show
 	get("/api/audio/{name}", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
-		audioPath, err := ShowAudioPath(name)
+		audio, err := storage.ReadAudio(name)
 		if err != nil {
 			return err
 		}
-		http.ServeFile(w, r, audioPath)
+
+		info, err := audio.Stat()
+		if err != nil {
+			return err
+		}
+
+		http.ServeContent(w, r, audio.Name(), info.ModTime(), audio)
 		return nil
 	})
 
 	// GET Playlists
 	get("/api/playlists", func(w http.ResponseWriter, r *http.Request) error {
-		playlists, err := ListPlaylists()
+		playlists, err := storage.ListPlaylists()
 		if err != nil {
 			return err
 		}
@@ -289,7 +297,7 @@ func StartServer(player *Player) error {
 	// Play single show
 	get("/api/play/{name}", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
-		if err := ShowExists(name); err != nil {
+		if err := storage.ShowExists(name); err != nil {
 			return err
 		}
 

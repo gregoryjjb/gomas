@@ -1,9 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"sync"
 	"time"
 
@@ -67,15 +68,15 @@ type Player struct {
 	pubsub         *pubsub.Pubsub[PlayerEvent]
 }
 
-func NewPlayer() *Player {
+func NewPlayer(ctx context.Context, storage *Storage) *Player {
 	state := &ExternalPlayerState{}
 	ch := make(chan PlayerMessage)
 	// go workerLoop(ch, state)
-	pi, err := newPlayerInternals()
+	pi, err := newPlayerInternals(storage)
 	if err != nil {
 		panic(err)
 	}
-	go pi.run(ch)
+	go pi.run(ctx, ch)
 
 	return &Player{
 		commandChannel: ch,
@@ -129,13 +130,8 @@ type KeyframePlayer struct {
 	index  int64
 }
 
-func (kp *KeyframePlayer) Load(id string) error {
-	show, err := ReadShowData(id)
-	if err != nil {
-		return err
-	}
-
-	kfs := show.FlatKeyframes()
+func (kp *KeyframePlayer) Load(data ProjectData) error {
+	kfs := data.FlatKeyframes()
 
 	plog.Debug().Int("length", len(kfs)).Msg("loaded keyframes")
 
@@ -194,16 +190,11 @@ func (ap *AudioPlayer) Stop() {
 	}
 }
 
-func (ap *AudioPlayer) Play(path string) (time.Time, error) {
+func (ap *AudioPlayer) Play(audio io.ReadCloser) (time.Time, error) {
 	// Always stop before playing another!
 	ap.Stop()
 
-	f, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	streamer, format, err := mp3.Decode(f)
+	streamer, format, err := mp3.Decode(audio)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -248,6 +239,7 @@ type playerInternals struct {
 	state     PlayerState
 	startTime time.Time
 	queue     CircularList[string]
+	storage   *Storage
 
 	audioPlayer    *AudioPlayer
 	keyframePlayer *KeyframePlayer
@@ -255,7 +247,7 @@ type playerInternals struct {
 	ps *pubsub.Pubsub[PlayerEvent]
 }
 
-func newPlayerInternals() (*playerInternals, error) {
+func newPlayerInternals(storage *Storage) (*playerInternals, error) {
 	ap := NewAudioPlayer()
 	plog.Debug().Msg("Initializing speakers")
 	if err := ap.Init(); err != nil {
@@ -267,10 +259,11 @@ func newPlayerInternals() (*playerInternals, error) {
 		audioPlayer:    ap,
 		keyframePlayer: &KeyframePlayer{},
 		ps:             pubsub.New[PlayerEvent](),
+		storage:        storage,
 	}, nil
 }
 
-func (pi *playerInternals) run(channel chan PlayerMessage) {
+func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) {
 	if pi.running {
 		plog.Fatal().Msg("Cannot call run on playerInternals more than once")
 	}
@@ -278,6 +271,13 @@ func (pi *playerInternals) run(channel chan PlayerMessage) {
 	plog.Print("Running player loop")
 
 	for {
+		if ctx.Err() != nil {
+			plog.Info().Msg("Aborting player")
+			pi.audioPlayer.Stop()
+			speaker.Close()
+			return
+		}
+
 		// Handle incoming message
 		select {
 		case msg := <-channel:
@@ -353,17 +353,21 @@ func (pi *playerInternals) enterIdle() {
 func (pi *playerInternals) playShow(id string) error {
 	plog.Info().Str("id", id).Msg("Playing show")
 
-	err := pi.keyframePlayer.Load(id)
+	data, err := pi.storage.ReadShowData(id)
 	if err != nil {
 		return err
 	}
 
-	audioPath, err := ShowAudioPath(id)
+	if err := pi.keyframePlayer.Load(data); err != nil {
+		return err
+	}
+
+	audio, err := pi.storage.ReadAudio(id)
 	if err != nil {
 		return err
 	}
 
-	pi.startTime, err = pi.audioPlayer.Play(audioPath)
+	pi.startTime, err = pi.audioPlayer.Play(audio)
 	if err != nil {
 		return err
 	}
@@ -391,7 +395,7 @@ func (pi *playerInternals) playNextShow() error {
 }
 
 func (pi *playerInternals) playAllShows() error {
-	shows, err := ListShows()
+	shows, err := pi.storage.ListShows()
 	if err != nil {
 		return fmt.Errorf("cannot play all: %e", err)
 	}

@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/spf13/afero"
 )
 
 var (
@@ -18,9 +19,8 @@ var (
 	ErrExists   = errors.New("already exists")
 )
 
-func ShowDir() string {
-	return filepath.Join(GetDataDir(), "projects")
-}
+// ShowsDir is the subdirectory under the data dir where the shows go
+const ShowsDir = "projects"
 
 var badNameRegex = regexp.MustCompile(`[<>:"/\\|?\*]`)
 
@@ -38,21 +38,14 @@ func ValidateShowName(name string) error {
 	return nil
 }
 
-////////////
-// Helpers
+type Storage struct {
+	fs afero.Fs
+}
 
-// Exists returns true if the path points to an existing file OR folder
-func Exists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
+func NewStorage(fs afero.Fs) *Storage {
+	return &Storage{
+		fs: fs,
 	}
-
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-
-	return false, err
 }
 
 //////////////
@@ -68,11 +61,10 @@ type Playlist struct {
 	Shows []string `json:"shows"`
 }
 
-func ListPlaylists() ([]Playlist, error) {
-	path := filepath.Join(GetDataDir(), "playlists.json")
-	file, err := os.Open(path)
+func (s *Storage) ListPlaylists() ([]Playlist, error) {
+	file, err := s.fs.Open("playlists.json")
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, afero.ErrFileNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -108,8 +100,8 @@ func ListPlaylists() ([]Playlist, error) {
 //////////
 // Shows
 
-func ListShows() ([]string, error) {
-	entries, err := os.ReadDir(ShowDir())
+func (s *Storage) ListShows() ([]string, error) {
+	entries, err := afero.ReadDir(s.fs, ShowsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -125,14 +117,14 @@ func ListShows() ([]string, error) {
 }
 
 // ShowExists returns an error if the named show does not exist
-func ShowExists(name string) error {
+func (s *Storage) ShowExists(name string) error {
 	if err := ValidateShowName(name); err != nil {
 		return err
 	}
 
-	info, err := os.Stat(filepath.Join(ShowDir(), name))
+	info, err := s.fs.Stat(filepath.Join(ShowsDir, name))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, afero.ErrFileNotFound) {
 			return fmt.Errorf("show %q %w", name, ErrNotExist)
 		}
 
@@ -146,12 +138,12 @@ func ShowExists(name string) error {
 }
 
 // ShowNotExists returns an error if the named show already exists
-func ShowNotExists(name string) error {
+func (s *Storage) ShowNotExists(name string) error {
 	if err := ValidateShowName(name); err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(filepath.Join(ShowDir(), name)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := s.fs.Stat(filepath.Join(ShowsDir, name)); !errors.Is(err, afero.ErrFileNotFound) {
 		if err == nil {
 			return fmt.Errorf("%w: show %q", ErrExists, name)
 		}
@@ -161,45 +153,33 @@ func ShowNotExists(name string) error {
 	return nil
 }
 
-func ShowAudioPath(name string) (string, error) {
-	audioPath := filepath.Join(ShowDir(), name, "audio.mp3")
-	if _, err := os.Stat(audioPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("audio for show %q %w", name, ErrNotExist)
-		}
-		return "", err
-	}
-
-	return audioPath, nil
-}
-
 // CreateShow creates a new show
-func CreateShow(name string, data ProjectData, audio io.Reader) error {
-	if err := ShowNotExists(name); err != nil {
+func (s *Storage) CreateShow(name string, data ProjectData, audio io.Reader) error {
+	if err := s.ShowNotExists(name); err != nil {
 		return err
 	}
 
-	if err := os.Mkdir(filepath.Join(ShowDir(), name), 0755); err != nil {
+	if err := s.fs.Mkdir(filepath.Join(ShowsDir, name), 0755); err != nil {
 		return err
 	}
 
-	if err := WriteShowData(name, data); err != nil {
+	if err := s.WriteShowData(name, data); err != nil {
 		return err
 	}
 
-	if err := WriteAudio(name, audio); err != nil {
+	if err := s.WriteAudio(name, audio); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func WriteShowData(name string, data ProjectData) error {
-	if err := ShowExists(name); err != nil {
+func (s *Storage) WriteShowData(name string, data ProjectData) error {
+	if err := s.ShowExists(name); err != nil {
 		return err
 	}
 
-	f, err := os.Create(filepath.Join(ShowDir(), name, "data.json"))
+	f, err := s.fs.Create(filepath.Join(ShowsDir, name, "data.json"))
 	if err != nil {
 		return err
 	}
@@ -212,12 +192,12 @@ func WriteShowData(name string, data ProjectData) error {
 	return f.Sync()
 }
 
-func WriteAudio(name string, audio io.Reader) error {
-	if err := ShowExists(name); err != nil {
+func (s *Storage) WriteAudio(name string, audio io.Reader) error {
+	if err := s.ShowExists(name); err != nil {
 		return err
 	}
 
-	f, err := os.Create(filepath.Join(ShowDir(), name, "audio.mp3"))
+	f, err := s.fs.Create(filepath.Join(ShowsDir, name, "audio.mp3"))
 	if err != nil {
 		return err
 	}
@@ -230,12 +210,12 @@ func WriteAudio(name string, audio io.Reader) error {
 	return f.Sync()
 }
 
-func ReadShowData(name string) (ProjectData, error) {
-	if err := ShowExists(name); err != nil {
+func (s *Storage) ReadShowData(name string) (ProjectData, error) {
+	if err := s.ShowExists(name); err != nil {
 		return ProjectData{}, err
 	}
 
-	f, err := os.Open(filepath.Join(ShowDir(), name, "data.json"))
+	f, err := s.fs.Open(filepath.Join(ShowsDir, name, "data.json"))
 	if err != nil {
 		return ProjectData{}, err
 	}
@@ -246,16 +226,16 @@ func ReadShowData(name string) (ProjectData, error) {
 	return data, err
 }
 
-func ReadAudio(name string) (*os.File, error) {
-	if err := ShowExists(name); err != nil {
+func (s *Storage) ReadAudio(name string) (afero.File, error) {
+	if err := s.ShowExists(name); err != nil {
 		return nil, err
 	}
 
-	return os.Open(filepath.Join(ShowDir(), name, "audio.mp3"))
+	return s.fs.Open(filepath.Join(ShowsDir, name, "audio.mp3"))
 }
 
 // TODO: create a better interface between the upload
-func ImportShmr(file multipart.File, header *multipart.FileHeader) error {
+func (s *Storage) ImportShmr(file multipart.File, header *multipart.FileHeader) error {
 	z, err := zip.NewReader(file, header.Size)
 	if err != nil {
 		return err
@@ -283,14 +263,14 @@ func ImportShmr(file multipart.File, header *multipart.FileHeader) error {
 
 	name := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
 
-	return CreateShow(name, data, audioFile)
+	return s.CreateShow(name, data, audioFile)
 }
 
 // ExportShmr bundles the specified show and writes it to w
-func ExportShmr(name string, w io.Writer) error {
+func (s *Storage) ExportShmr(name string, w io.Writer) error {
 	z := zip.NewWriter(w)
 
-	showFS := os.DirFS(filepath.Join(ShowDir(), name))
+	showFS := afero.NewIOFS(afero.NewBasePathFs(s.fs, filepath.Join(ShowsDir, name)))
 	if err := z.AddFS(showFS); err != nil {
 		return err
 	}
@@ -298,16 +278,16 @@ func ExportShmr(name string, w io.Writer) error {
 	return z.Close()
 }
 
-func RenameShow(from, to string) error {
-	if err := ShowExists(from); err != nil {
+func (s *Storage) RenameShow(from, to string) error {
+	if err := s.ShowExists(from); err != nil {
 		return err
 	}
-	if err := ShowNotExists(to); err != nil {
+	if err := s.ShowNotExists(to); err != nil {
 		return err
 	}
 
-	fromPath := filepath.Join(ShowDir(), from)
-	toPath := filepath.Join(ShowDir(), to)
+	fromPath := filepath.Join(ShowsDir, from)
+	toPath := filepath.Join(ShowsDir, to)
 
-	return os.Rename(fromPath, toPath)
+	return s.fs.Rename(fromPath, toPath)
 }

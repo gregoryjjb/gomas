@@ -9,6 +9,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/afero"
 )
 
 type DurationMarshallable time.Duration
@@ -63,75 +64,66 @@ func setConfig(c ConfigTOML) {
 	configMutex.Unlock()
 }
 
-func FindConfigFile() (string, error) {
-	configPath := ConfigFlag
-	if configPath != "" {
-		log.Debug().Str("path", configPath).Msg("Using config file provided by --config flag")
-		exists, err := Exists(configPath)
+// FindConfig returns the path to the config file that should be used
+func FindConfig(fs GomasFS, flags Flags, getEnv GetEnver) (string, error) {
+	if flags.Config != "" {
+		path, err := fs.Abs(flags.Config)
+		if err != nil {
+			return "", err
+		}
+		log.Debug().Str("path", path).Msg("Using config provided by --config flag")
+		exists, err := afero.Exists(fs, path)
 		if err != nil {
 			return "", err
 		}
 		if !exists {
-			return "", fmt.Errorf("config file provided by --config flag does not exist: %q", configPath)
+			return "", fmt.Errorf("config file provided by --config flag does not exist: %q", path)
 		}
-		return configPath, nil
+		return path, nil
 	}
 
-	configPath = os.Getenv("GOMAS_CONFIG")
-	if configPath != "" {
-		log.Debug().Str("path", configPath).Msg("Using config file provided by environment")
-		exists, err := Exists(configPath)
+	if path := getEnv("GOMAS_CONFIG"); path != "" {
+		path, err := fs.Abs(flags.Config)
+		if err != nil {
+			return "", err
+		}
+		log.Debug().Str("path", path).Msg("Using config file provided by environment")
+		exists, err := afero.Exists(fs, path)
 		if err != nil {
 			return "", err
 		}
 		if !exists {
-			return "", fmt.Errorf("config file provided by environment does not exist: %q", configPath)
+			return "", fmt.Errorf("config file provided by environment does not exist: %q", path)
 		}
-		return configPath, nil
+		return path, nil
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
+	wd := "./"
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 
 	for _, p := range []string{wd, home} {
-		if configPath != "" {
-			break
+		path, err := fs.Abs(filepath.Join(p, ConfigFilename))
+		if err != nil {
+			return "", err
 		}
-
-		path := filepath.Join(p, ConfigFilename)
 		log.Debug().Str("path", path).Msg("Searching for config file")
-		exists, err := Exists(path)
+		exists, err := afero.Exists(fs, path)
 		if err != nil {
 			return "", err
 		}
 		if exists {
-			configPath = path
+			return path, nil
 		}
 	}
 
-	if configPath == "" {
-		return "", fmt.Errorf("could not find config file anywhere")
-	}
-
-	return configPath, nil
+	return "", fmt.Errorf("could not find config file anywhere")
 }
 
-func InitConfig() error {
-	configPath, err := FindConfigFile()
-	if err != nil {
-		return err
-	}
-
-	log.Info().Str("path", configPath).Msg("Reading config file")
-
-	configFile, err := os.Open(configPath)
+func ParseConfig(fs afero.Fs, path string) error {
+	configFile, err := fs.Open(path)
 	if err != nil {
 		return err
 	}
@@ -151,7 +143,7 @@ func InitConfig() error {
 	if err != nil {
 		return err
 	}
-	dirExists, err := Exists(abs)
+	dirExists, err := afero.DirExists(fs, abs)
 	if err != nil {
 		return err
 	}
