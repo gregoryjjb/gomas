@@ -89,9 +89,9 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-func StartServer(player *Player, storage *Storage) error {
+func StartServer(config *Config, player *Player, storage *Storage) error {
 	// Ensure templates parse correctly
-	_, err := GetTemplates()
+	_, err := GetTemplates(config.DisableEmbed)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func StartServer(player *Player, storage *Storage) error {
 			pagedata.Exist[show] = true
 		}
 
-		tmpl, err := GetTemplates()
+		tmpl, err := GetTemplates(config.DisableEmbed)
 		if err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func StartServer(player *Player, storage *Storage) error {
 	})
 
 	get("/config", func(w http.ResponseWriter, r *http.Request) error {
-		t, err := GetTemplates()
+		t, err := GetTemplates(config.DisableEmbed)
 		if err != nil {
 			return err
 		}
@@ -150,10 +150,10 @@ func StartServer(player *Player, storage *Storage) error {
 	})
 
 	// Cram the legacy show editor in
-	FileServer(r, "/editor", GetEditorFS())
+	FileServer(r, "/editor", GetEditorFS(config.DisableEmbed))
 
 	get("/logs", func(w http.ResponseWriter, r *http.Request) error {
-		t, err := GetTemplates()
+		t, err := GetTemplates(config.DisableEmbed)
 		if err != nil {
 			return err
 		}
@@ -342,7 +342,7 @@ func StartServer(player *Player, storage *Storage) error {
 
 	r.Get("/ws", createWebsocketHandler(player))
 
-	staticFS, err := GetStaticFS()
+	staticFS, err := GetStaticFS(config.DisableEmbed)
 	if err != nil {
 		return err
 	}
@@ -353,7 +353,7 @@ func StartServer(player *Player, storage *Storage) error {
 		return nil
 	})
 
-	address := fmt.Sprintf("%s:%s", Host, Port)
+	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
 	log.Info().Str("listen", address).Msg("launching server")
 	return http.ListenAndServe(address, r)
 }

@@ -39,12 +39,14 @@ func ValidateShowName(name string) error {
 }
 
 type Storage struct {
-	fs afero.Fs
+	config *Config
+	fs     afero.Fs
 }
 
-func NewStorage(fs afero.Fs) *Storage {
+func NewStorage(fs GomasFS, config *Config) *Storage {
 	return &Storage{
-		fs: fs,
+		config: config,
+		fs:     afero.NewBasePathFs(fs, config.DataDir()),
 	}
 }
 

@@ -74,26 +74,20 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		Str("commit_hash", commitHash).
 		Msg("Initializing Gomas")
 
-	// Initialize Config
-	configPath, err := FindConfig(fs, flags, getEnv)
+	config, err := LoadConfig(fs, flags, getEnv)
 	if err != nil {
-		return err
-	}
-	configPath, _ = filepath.Abs(configPath)
-	log.Info().Str("path", configPath).Msg("Reading config file")
-	if err := ParseConfig(fs, configPath); err != nil {
 		return err
 	}
 
 	// Initialize GPIO
-	if err := gpio.Init(GetPinout()); err != nil {
+	if err := gpio.Init(config.Pinout()); err != nil {
 		return err
 	}
 
-	storage := NewStorage(afero.NewBasePathFs(fs, GetDataDir()))
-	player := NewPlayer(ctx, storage)
+	storage := NewStorage(fs, config)
+	player := NewPlayer(ctx, config, storage)
 
-	return StartServer(player, storage)
+	return StartServer(config, player, storage)
 }
 
 type Flags struct {

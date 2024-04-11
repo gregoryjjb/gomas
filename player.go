@@ -68,11 +68,11 @@ type Player struct {
 	pubsub         *pubsub.Pubsub[PlayerEvent]
 }
 
-func NewPlayer(ctx context.Context, storage *Storage) *Player {
+func NewPlayer(ctx context.Context, config *Config, storage *Storage) *Player {
 	state := &ExternalPlayerState{}
 	ch := make(chan PlayerMessage)
 	// go workerLoop(ch, state)
-	pi, err := newPlayerInternals(storage)
+	pi, err := newPlayerInternals(config, storage)
 	if err != nil {
 		panic(err)
 	}
@@ -120,11 +120,6 @@ func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
 //////////////////////////////////
 // Keyframe player
 
-// type RenderedKeyframe struct {
-// 	time   float64
-// 	values []int64
-// }
-
 type KeyframePlayer struct {
 	frames []FlatKeyframe
 	index  int64
@@ -140,8 +135,8 @@ func (kp *KeyframePlayer) Load(data ProjectData) error {
 }
 
 // Returns true if done
-func (kp *KeyframePlayer) Execute(duration time.Duration) (bool, error) {
-	secs := (duration - GetBias()).Seconds()
+func (kp *KeyframePlayer) Execute(duration, bias time.Duration) (bool, error) {
+	secs := (duration - bias).Seconds()
 
 	if len(kp.frames) <= int(kp.index) {
 		return true, nil
@@ -178,9 +173,8 @@ func NewAudioPlayer() *AudioPlayer {
 	return &AudioPlayer{}
 }
 
-func (ap *AudioPlayer) Init() error {
-	buff := GetSpeakerBuffer()
-	return speaker.Init(sampleRate, sampleRate.N(buff))
+func (ap *AudioPlayer) Init(speakerBuffer time.Duration) error {
+	return speaker.Init(sampleRate, sampleRate.N(speakerBuffer))
 }
 
 func (ap *AudioPlayer) Stop() {
@@ -240,6 +234,7 @@ type playerInternals struct {
 	startTime time.Time
 	queue     CircularList[string]
 	storage   *Storage
+	config    *Config
 
 	audioPlayer    *AudioPlayer
 	keyframePlayer *KeyframePlayer
@@ -247,10 +242,10 @@ type playerInternals struct {
 	ps *pubsub.Pubsub[PlayerEvent]
 }
 
-func newPlayerInternals(storage *Storage) (*playerInternals, error) {
+func newPlayerInternals(config *Config, storage *Storage) (*playerInternals, error) {
 	ap := NewAudioPlayer()
 	plog.Debug().Msg("Initializing speakers")
-	if err := ap.Init(); err != nil {
+	if err := ap.Init(config.SpeakerBuffer()); err != nil {
 		return nil, err
 	}
 
@@ -260,6 +255,7 @@ func newPlayerInternals(storage *Storage) (*playerInternals, error) {
 		keyframePlayer: &KeyframePlayer{},
 		ps:             pubsub.New[PlayerEvent](),
 		storage:        storage,
+		config:         config,
 	}, nil
 }
 
@@ -311,7 +307,7 @@ func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) 
 		switch pi.state {
 		case StatePlaying:
 			t := time.Since(pi.startTime)
-			done, err := pi.keyframePlayer.Execute(t)
+			done, err := pi.keyframePlayer.Execute(t, pi.config.Bias())
 			if err != nil {
 				pi.handleError(err)
 			} else if done {
@@ -321,12 +317,12 @@ func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) 
 
 		case StateResting:
 			t := time.Since(pi.startTime)
-			if t >= GetRestPeriod() {
+			if t >= pi.config.RestPeriod() {
 				pi.playNextShow()
 			}
 		}
 
-		fps := GetFramesPerSecond()
+		fps := pi.config.FramesPerSecond()
 		delay := time.Second / time.Duration(fps)
 		time.Sleep(delay)
 	}
@@ -415,7 +411,7 @@ func (pi *playerInternals) handleShowEnd() {
 
 	if pi.queue.Length() > 1 {
 		plog.Info().
-			Str("period", GetRestPeriod().String()).
+			Str("period", pi.config.RestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
 			Msg("Resting")
 
