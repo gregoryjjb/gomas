@@ -2,7 +2,9 @@
 
 package gpio
 
-import "github.com/stianeikeland/go-rpio/v4"
+import (
+	"github.com/stianeikeland/go-rpio/v4"
+)
 
 var pinout []int
 

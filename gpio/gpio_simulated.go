@@ -2,22 +2,22 @@
 
 package gpio
 
-import "fmt"
-
-const prefix = "Simulated GPIO: "
+import (
+	"github.com/rs/zerolog/log"
+)
 
 func Init(providedPinout []int) error {
-	fmt.Println(prefix, "initializing")
+	log.Debug().Msg("GPIO will be simulated")
 	return nil
 }
 
 func Close() error {
-	fmt.Println(prefix, "closing")
+	log.Debug().Msg("Simulated GPIO closing")
 	return nil
 }
 
 func printStates(states []bool) {
-	str := prefix
+	var str string
 	for _, state := range states {
 		if state {
 			str += "#"
@@ -25,7 +25,7 @@ func printStates(states []bool) {
 			str += " "
 		}
 	}
-	fmt.Println(str)
+	log.Debug().Str("pins", str).Msg("GPIO")
 }
 
 func Execute(states []bool) error {
