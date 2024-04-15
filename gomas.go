@@ -84,8 +84,13 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		return err
 	}
 
+	audio, err := NewSpeakerPlayer(config.SpeakerBuffer())
+	if err != nil {
+		return err
+	}
+
 	storage := NewStorage(fs, config)
-	player := NewPlayer(ctx, config, storage)
+	player := NewPlayer(ctx, config, storage, audio)
 
 	return StartServer(config, player, storage)
 }
