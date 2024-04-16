@@ -78,8 +78,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	}
 
 	if flags.Systemd {
-		SystemdServiceFile()
-		return nil
+		return SystemdServiceFile(flags)
 	}
 
 	log.Info().
@@ -113,6 +112,7 @@ type Flags struct {
 	Version bool
 	Systemd bool
 	Config  string
+	User    string
 }
 
 func parseFlags(args []string) (Flags, error) {
@@ -122,6 +122,7 @@ func parseFlags(args []string) (Flags, error) {
 	set.BoolVar(&f.Version, "version", false, "Print version")
 	set.BoolVar(&f.Systemd, "systemd", false, "Generate and print systemd service file")
 	set.StringVar(&f.Config, "config", "", "Path to config file")
+	set.StringVar(&f.User, "user", "pi", "User to run as for systemd")
 
 	if err := set.Parse(args); err != nil {
 		return Flags{}, err

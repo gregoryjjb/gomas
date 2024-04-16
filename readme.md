@@ -20,7 +20,7 @@ Play shows synced to music on your Christmas lights.
 3. To daemonize with systemd:
     ```sh
     # Gomas can create its own service file
-    gomas --systemd > /etc/systemd/gomas.service
+    gomas --systemd --user="$(whoami)" > /etc/systemd/gomas.service
     # To start on boot:
     systemctl enable gomas
     ```

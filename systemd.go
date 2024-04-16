@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"os"
 	"text/template"
 )
@@ -14,25 +15,32 @@ type GomasServiceParams struct {
 	User       string
 }
 
-func SystemdServiceFile() {
+func SystemdServiceFile(flags Flags) error {
 	tmpl := template.New("gomas.service")
 	tmpl, err := tmpl.Parse(gomasServiceEmbed)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	path, err := os.Executable()
 	if err != nil {
-		panic(err)
+		return err
+	}
+
+	user := flags.User
+	if user == "" {
+		return fmt.Errorf("user cannot be blank (set with --user)")
 	}
 
 	params := GomasServiceParams{
 		BinaryPath: path,
-		User:       "pi",
+		User:       user,
 	}
 
 	err = tmpl.Execute(os.Stdout, params)
 	if err != nil {
-		panic(err)
+		return err
 	}
+
+	return nil
 }
