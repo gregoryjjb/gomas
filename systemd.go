@@ -28,7 +28,7 @@ func SystemdServiceFile() {
 
 	params := GomasServiceParams{
 		BinaryPath: path,
-		User: "pi",
+		User:       "pi",
 	}
 
 	err = tmpl.Execute(os.Stdout, params)

@@ -5,12 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/spf13/afero"
 
 	"gregoryjjb/gomas/gpio"
 )
@@ -34,6 +32,23 @@ var (
 	commitHash         string
 )
 
+type BuildInfo struct {
+	Version    string
+	Time       time.Time
+	CommitHash string
+}
+
+func getBuildInfo() BuildInfo {
+	ts, _ := strconv.ParseInt(buildUnixTimestamp, 10, 64)
+	buildTime := time.Unix(ts, 0)
+
+	return BuildInfo{
+		Version:    version,
+		Time:       buildTime,
+		CommitHash: commitHash,
+	}
+}
+
 func main() {
 	ctx := context.Background()
 	if err := run(ctx, os.Args[1:], os.Getenv, newGomasOSFS()); err != nil {
@@ -48,8 +63,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	// ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	// defer cancel()
 
-	ts, _ := strconv.ParseInt(buildUnixTimestamp, 10, 64)
-	buildTime := time.Unix(ts, 0)
+	buildInfo := getBuildInfo()
 
 	flags, err := parseFlags(args)
 	if err != nil {
@@ -57,9 +71,9 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	}
 
 	if flags.Version {
-		fmt.Println("Gomas version:", version)
-		fmt.Println("Built on:", buildTime)
-		fmt.Println("Commit hash:", commitHash)
+		fmt.Println("Gomas version:", buildInfo.Version)
+		fmt.Println("Built on:", buildInfo.Time)
+		fmt.Println("Commit hash:", buildInfo.CommitHash)
 		return nil
 	}
 
@@ -69,9 +83,9 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	}
 
 	log.Info().
-		Str("version", version).
-		Str("build_timestamp", buildTime.Format(time.RFC3339)).
-		Str("commit_hash", commitHash).
+		Str("version", buildInfo.Version).
+		Time("build_time", buildInfo.Time).
+		Str("commit_hash", buildInfo.CommitHash).
 		Msg("Initializing Gomas")
 
 	config, err := LoadConfig(fs, flags, getEnv)
@@ -114,28 +128,4 @@ func parseFlags(args []string) (Flags, error) {
 	}
 
 	return f, nil
-}
-
-type GomasFS interface {
-	afero.Fs
-	Abs(string) (string, error)
-	HomeDir() (string, error)
-}
-
-type gomasOSFS struct {
-	afero.Fs
-}
-
-func newGomasOSFS() GomasFS {
-	return &gomasOSFS{
-		afero.NewOsFs(),
-	}
-}
-
-func (g *gomasOSFS) Abs(path string) (string, error) {
-	return filepath.Abs(path)
-}
-
-func (g *gomasOSFS) HomeDir() (string, error) {
-	return os.UserHomeDir()
 }

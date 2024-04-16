@@ -27,7 +27,7 @@ func createWebsocketHandler(player *Player) http.HandlerFunc {
 		// 		log.Err(err).Msg("Websocket write failed")
 		// 	}
 		// })
-		
+
 		unsub, ch := player.Subscribe()
 		defer unsub()
 
@@ -44,7 +44,6 @@ func createWebsocketHandler(player *Player) http.HandlerFunc {
 		}
 
 		log.Info().Msg("Websocket seems to have closed?")
-		
 
 		// var v interface{}
 		// err = wsjson.Read(r.Context(), c, &v)

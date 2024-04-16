@@ -1,13 +1,13 @@
 package main
 
 type CircularList[T any] struct {
-	values []T
+	values   []T
 	position int
 }
 
 func NewCircularList[T any](vs []T) *CircularList[T] {
 	return &CircularList[T]{
-		values: vs,
+		values:   vs,
 		position: 0,
 	}
 }
@@ -50,7 +50,7 @@ func (cl *CircularList[T]) Length() int {
 }
 
 func (cl *CircularList[T]) nextPosition() int {
-	p := cl.position + 1;
+	p := cl.position + 1
 	if p >= len(cl.values) {
 		p = 0
 	}

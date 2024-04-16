@@ -174,7 +174,7 @@ func release() {
 	buildCmd.Stderr = os.Stderr
 	must(buildCmd.Run())
 
-	pwd, _ :=exec.Command("pwd").Output()
+	pwd, _ := exec.Command("pwd").Output()
 	fmt.Println(string(pwd))
 
 	// Make release
