@@ -105,7 +105,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	storage := NewStorage(fs, config)
 	player := NewPlayer(ctx, config, storage, audio)
 
-	return StartServer(config, player, storage)
+	return StartServer(config, buildInfo, player, storage)
 }
 
 type Flags struct {

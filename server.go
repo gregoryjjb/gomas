@@ -89,7 +89,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-func StartServer(config *Config, player *Player, storage *Storage) error {
+func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
 	// Ensure templates parse correctly
 	_, err := GetTemplates(config.DisableEmbed)
 	if err != nil {
@@ -164,6 +164,14 @@ func StartServer(config *Config, player *Player, storage *Storage) error {
 	// For testing panics
 	get("/panic", func(w http.ResponseWriter, r *http.Request) error {
 		panic("oh no what happened!")
+	})
+
+	get("/api", func(w http.ResponseWriter, r *http.Request) error {
+		return RespondJSON(w, map[string]any{
+			"version":     buildInfo.Version,
+			"built_at":    buildInfo.Time,
+			"commit_hash": buildInfo.CommitHash,
+		})
 	})
 
 	// GET shows
