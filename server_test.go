@@ -80,10 +80,13 @@ func TestStartServer(t *testing.T) {
 	fs := NewGomasMemFS()
 	fs.MkdirAll("/data/projects", 0755)
 
+	buildInfo := BuildInfo{
+		Version: "0.0.0",
+	}
 	storage := NewStorage(fs, config)
 	player := NewPlayer(ctx, config, storage, mockAudioPlayer{})
 
-	go StartServer(config, player, storage)
+	go StartServer(config, buildInfo, player, storage)
 
 	err := waitForReady(ctx, time.Second*3, "http://localhost:1225/api/shows")
 	require.NoError(t, err)
