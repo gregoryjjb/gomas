@@ -141,7 +141,7 @@ type playerInternals struct {
 	startTime     time.Time
 	queue         CircularList[string]
 	keyframes     []FlatKeyframe
-	keyframeIndex int64
+	keyframeIndex int
 
 	ps *pubsub.Pubsub[PlayerEvent]
 }
@@ -232,14 +232,23 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 	t := time.Since(pi.startTime)
 	secs := (t - bias).Seconds()
 
-	if len(pi.keyframes) <= int(pi.keyframeIndex) {
-		return true, nil
+	if len(pi.keyframes) <= pi.keyframeIndex {
+		// Keyframes are finished
+
+		// Wait for an additional 1 second before ending this song
+		last := pi.keyframes[len(pi.keyframes) - 1]
+		elapsedBuffer := secs - last.Time
+
+		if elapsedBuffer < 1 {
+			fmt.Println("waiting extra buffer")
+		}
+
+		return elapsedBuffer >= 1, nil
 	}
 
-	current := pi.keyframes[pi.keyframeIndex]
-
-	if current.Time <= secs {
-		if err := gpio.Execute(current.States); err != nil {
+	next := pi.keyframes[pi.keyframeIndex]
+	if next.Time <= secs {
+		if err := gpio.Execute(next.States); err != nil {
 			return false, err
 		}
 		pi.keyframeIndex += 1
@@ -275,6 +284,10 @@ func (pi *playerInternals) playShow(id string) error {
 		return err
 	}
 	pi.keyframes = data.FlatKeyframes()
+	plog.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
+	if len(pi.keyframes) == 0 {
+		return fmt.Errorf("show %q had zero keyframes", id)
+	}
 
 	audio, err := pi.storage.ReadAudio(id)
 	if err != nil {

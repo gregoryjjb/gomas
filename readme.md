@@ -56,7 +56,9 @@ speaker_buffer = "100ms"
 
 ## Development
 
-To run on non-pi hardware use the `nogpio` tag: `go run -tags nogpio .`, included in the script:
+By default, GPIO is not included. Build/run with `-tags gpio` to include it.
+
+To start the dev server:
 
 ```sh
 scripts/dev.ps1

@@ -20,7 +20,12 @@ var (
 )
 
 // ShowsDir is the subdirectory under the data dir where the shows go
-const ShowsDir = "projects"
+const ShowsDir = "songs"
+
+const (
+	DataFileName  = "data.json"
+	AudioFileName = "audio.mp3"
+)
 
 var badNameRegex = regexp.MustCompile(`[<>:"/\\|?\*]`)
 
@@ -44,10 +49,100 @@ type Storage struct {
 }
 
 func NewStorage(fs GomasFS, config *Config) *Storage {
+	subFS := afero.NewBasePathFs(fs, config.DataDir())
+
 	return &Storage{
 		config: config,
-		fs:     afero.NewBasePathFs(fs, config.DataDir()),
+		fs:     subFS,
 	}
+}
+
+func (s *Storage) Migrate() error {
+	projectEntries, err := afero.ReadDir(s.fs, "projects")
+	if err != nil {
+		return err
+	}
+	var projectFiles []string
+	for _, entry := range projectEntries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
+			projectFiles = append(projectFiles, entry.Name())
+		}
+	}
+
+	audioEntries, err := afero.ReadDir(s.fs, "audio")
+	if err != nil {
+		return err
+	}
+	var audioFiles []string
+	for _, entry := range audioEntries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".mp3" {
+			audioFiles = append(audioFiles, entry.Name())
+		}
+	}
+
+	for _, projectFile := range projectFiles {
+		name := strings.TrimSuffix(projectFile, filepath.Ext(projectFile))
+
+		from := filepath.Join("projects", projectFile)
+		to := filepath.Join(ShowsDir, name, DataFileName)
+
+		fmt.Printf("Migrating %q to %q\n", from, to)
+
+		f, err := s.fs.Open(from)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		
+		var legacy LegacyShow
+		if err := json.NewDecoder(f).Decode(&legacy); err != nil {
+			return err
+		}
+
+		var modern ProjectData
+		for _, track := range legacy.Tracks {
+			var newTrack Track
+
+			for _, keyframe := range track.Keyframes {
+				newTrack.Keyframes = append(newTrack.Keyframes, Keyframe{
+					Timestamp: keyframe.Time,
+					Value: float64(keyframe.State),
+					Selected: keyframe.Selected,
+				})
+			}
+
+			modern.Tracks = append(modern.Tracks, newTrack)
+		}
+
+		if err := s.fs.MkdirAll(filepath.Dir(to), 0777); err != nil {
+			return err
+		}
+		toFile, err := s.fs.Create(to)
+		if err != nil {
+			return err
+		}
+		if err := json.NewEncoder(toFile).Encode(modern); err != nil {
+			return err
+		}
+	}
+
+	for _, audioFile := range audioFiles {
+		name := strings.TrimSuffix(audioFile, filepath.Ext(audioFile))
+
+		from := filepath.Join("audio", audioFile)
+		to := filepath.Join(ShowsDir, name, AudioFileName)
+
+		fmt.Printf("Migrating %q to %q\n", from, to)
+
+		if err := s.fs.MkdirAll(filepath.Dir(to), 0777); err != nil {
+			return err
+		}
+		if err := s.fs.Rename(from, to); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 //////////////
@@ -181,7 +276,7 @@ func (s *Storage) WriteShowData(name string, data ProjectData) error {
 		return err
 	}
 
-	f, err := s.fs.Create(filepath.Join(ShowsDir, name, "data.json"))
+	f, err := s.fs.Create(filepath.Join(ShowsDir, name, DataFileName))
 	if err != nil {
 		return err
 	}
@@ -199,7 +294,7 @@ func (s *Storage) WriteAudio(name string, audio io.Reader) error {
 		return err
 	}
 
-	f, err := s.fs.Create(filepath.Join(ShowsDir, name, "audio.mp3"))
+	f, err := s.fs.Create(filepath.Join(ShowsDir, name, AudioFileName))
 	if err != nil {
 		return err
 	}
@@ -217,7 +312,7 @@ func (s *Storage) ReadShowData(name string) (ProjectData, error) {
 		return ProjectData{}, err
 	}
 
-	f, err := s.fs.Open(filepath.Join(ShowsDir, name, "data.json"))
+	f, err := s.fs.Open(filepath.Join(ShowsDir, name, DataFileName))
 	if err != nil {
 		return ProjectData{}, err
 	}
@@ -233,7 +328,7 @@ func (s *Storage) ReadAudio(name string) (afero.File, error) {
 		return nil, err
 	}
 
-	return s.fs.Open(filepath.Join(ShowsDir, name, "audio.mp3"))
+	return s.fs.Open(filepath.Join(ShowsDir, name, AudioFileName))
 }
 
 // TODO: create a better interface between the upload
@@ -243,13 +338,13 @@ func (s *Storage) ImportShmr(file multipart.File, header *multipart.FileHeader) 
 		return err
 	}
 
-	dataFile, err := z.Open("data.json")
+	dataFile, err := z.Open(DataFileName)
 	if err != nil {
 		return err
 	}
 	defer dataFile.Close()
 
-	audioFile, err := z.Open("audio.mp3")
+	audioFile, err := z.Open(AudioFileName)
 	if err != nil {
 		return err
 	}

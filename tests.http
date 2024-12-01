@@ -10,7 +10,7 @@ GET http://localhost:1225/api/shows/carol_of_the_bells_69
 
 ###
 
-GET http://localhost:1225/api/play/Carol%20of%20the%20Bells
+GET http://localhost:1225/api/play/we_wish_you_a_merry_christmas
 
 ###
 

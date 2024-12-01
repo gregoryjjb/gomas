@@ -21,9 +21,9 @@ type Track struct {
 }
 
 type Keyframe struct {
-	Timestamp float64 `json:"timestamp"`
+	Timestamp float64 `json:"ts"`
 	Value     float64 `json:"value"`
-	Selected  bool    `json:"selected"`
+	Selected  bool    `json:"selected,omitempty"`
 }
 
 type FlatKeyframe struct {
@@ -115,4 +115,43 @@ func NewProjectData(trackCount int) ProjectData {
 	return ProjectData{
 		Tracks: tracks,
 	}
+}
+
+// Legacy
+
+type LegacyShow struct {
+	ProjectData *LegacyProjectData `json:"projectData"`
+	Tracks      []*LegacyTrack     `json:"tracks"`
+}
+
+type LegacyProjectData struct {
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+type LegacyTrack struct {
+	ID        int               `json:"id"`
+	Keyframes []*LegacyKeyframe `json:"keyframes"`
+}
+
+type LegacyKeyframe struct {
+	Channel  int         `json:"channel"`
+	Time     float64     `json:"time"`
+	OldTime  float64     `json:"oldTime"`
+	State    LegacyState `json:"state"`
+	Selected bool        `json:"selected"`
+}
+
+type LegacyState int
+
+func (state *LegacyState) UnmarshalJSON(data []byte) error {
+	asString := string(data)
+	if asString == "1" || asString == "true" {
+		*state = 1
+	} else if asString == "0" || asString == "false" {
+		*state = 0
+	} else {
+		return fmt.Errorf("state unmarshal error: invalid input %s", asString)
+	}
+	return nil
 }

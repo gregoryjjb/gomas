@@ -21,6 +21,7 @@ if [ "$ARCH" = "arm64" ]; then
   CGO_ENABLED=1 \
   go build \
     -o $OUTPUT \
+    -tags gpio \
     -ldflags "-X main.buildUnixTimestamp=$(date +%s) -X main.commitHash=$(git rev-parse HEAD) -X main.version=$VERSION" \
     .
 
@@ -32,6 +33,7 @@ elif [ "$ARCH" = "arm32" ]; then
   CGO_ENABLED=1 \
   go build \
     -o $OUTPUT \
+    -tags gpio \
     -ldflags "-X main.buildUnixTimestamp=$(date +%s) -X main.commitHash=$(git rev-parse HEAD) -X main.version=$VERSION" \
     .
 

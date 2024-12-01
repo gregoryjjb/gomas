@@ -92,6 +92,13 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		return err
 	}
 
+	storage := NewStorage(fs, config)
+
+	if flags.Migrate {
+		log.Info().Msg("Migrating show directory structure")
+		return storage.Migrate()
+	}
+
 	// Initialize GPIO
 	if err := gpio.Init(config.Pinout()); err != nil {
 		return err
@@ -102,7 +109,6 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		return err
 	}
 
-	storage := NewStorage(fs, config)
 	player := NewPlayer(ctx, config, storage, audio)
 
 	return StartServer(config, buildInfo, player, storage)
@@ -113,6 +119,7 @@ type Flags struct {
 	Systemd bool
 	Config  string
 	User    string
+	Migrate bool
 }
 
 func parseFlags(args []string) (Flags, error) {
@@ -123,6 +130,7 @@ func parseFlags(args []string) (Flags, error) {
 	set.BoolVar(&f.Systemd, "systemd", false, "Generate and print systemd service file")
 	set.StringVar(&f.Config, "config", "", "Path to config file")
 	set.StringVar(&f.User, "user", "pi", "User to run as for systemd")
+	set.BoolVar(&f.Migrate, "migrate", false, "Migrate from old to new dir structure")
 
 	if err := set.Parse(args); err != nil {
 		return Flags{}, err

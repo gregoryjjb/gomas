@@ -1,4 +1,4 @@
-//go:build !nogpio
+//go:build gpio
 
 package gpio
 
