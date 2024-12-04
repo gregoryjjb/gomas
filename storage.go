@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"path/filepath"
 	"regexp"
@@ -200,6 +201,9 @@ func (s *Storage) ListPlaylists() ([]Playlist, error) {
 func (s *Storage) ListShows() ([]string, error) {
 	entries, err := afero.ReadDir(s.fs, ShowsDir)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
 		return nil, err
 	}
 

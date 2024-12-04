@@ -1,3 +1,4 @@
+$PSNativeCommandArgumentPassing = 'legacy'
 
 $VERSION=$args[0]
 

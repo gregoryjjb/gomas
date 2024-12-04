@@ -16,7 +16,7 @@
         Gomas
       </h1>
 
-      <div class="flex flex-wrap gap-3 mb-8">
+      <div class="flex flex-wrap gap-3 mb-6">
         <button
           class="btn border-amber-300 text-amber-300 hover:bg-amber-950"
           onclick="on()"
@@ -49,7 +49,7 @@
         </button>
       </div>
 
-      <div class="flex flex-wrap gap-3 mb-8">
+      <div class="flex flex-wrap gap-3 mb-12">
         <button
           class="btn border-emerald-300 text-emerald-300 hover:bg-emerald-950"
           onclick="playAll()"
@@ -97,13 +97,13 @@
         </button>
       </div>
 
-      <ul class="flex flex-col gap-3 mb-12 pl-3">
+      <ul class="flex flex-col gap-4 mb-12 pl-3">
         {{range .Shows}}
         <li>
           <button
-            class="flex items-baseline group"
-            onclick="playShow('{{.ID}}')"
-            data-show="{{.ID}}"
+            class="flex items-center group text-lg"
+            onclick="playShow('{{.}}')"
+            data-show="{{.}}"
             data-playing="false"
           >
             <svg
@@ -116,27 +116,33 @@
                 d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zM188.3 147.1c7.6-4.2 16.8-4.1 24.3 .5l144 88c7.1 4.4 11.5 12.1 11.5 20.5s-4.4 16.1-11.5 20.5l-144 88c-7.4 4.5-16.7 4.7-24.3 .5s-12.3-12.2-12.3-20.9V168c0-8.7 4.7-16.7 12.3-20.9z"
               />
             </svg>
-            <p class="break-all text-left">{{.ID}}</p>
+            <p class="break-all text-left">{{.}}</p>
           </button>
         </li>
         {{end}}
       </ul>
 
-      <h2 class="text-xl font-semibold mb-8">Playlists</h2>
-      <ul class="flex flex-col gap-3 pl-3 mb-16">
-        {{range .Playlists}}
-        <li>
-          <p class="mb-2">{{.ID}}</p>
-          <ul class="pl-3">
-            {{range .Shows}}
+      <div class="mb-16">
+        <h2 class="text-xl font-semibold mb-3">Playlists</h2>
+        {{if .Playlists}}
+          <ul class="flex flex-col gap-3 pl-3">
+            {{range .Playlists}}
             <li>
-              <p class="text-sm text-slate-400">{{$}} {{.}}</p>
+              <p class="mb-2">{{.ID}}</p>
+              <ul class="pl-3">
+                {{range .Shows}}
+                <li>
+                  <p class="text-sm text-slate-400">{{$}} {{.}}</p>
+                </li>
+                {{end}}
+              </ul>
             </li>
             {{end}}
           </ul>
-        </li>
+        {{else}}
+          <p class="text-gray-500 italic">No playlists</p>
         {{end}}
-      </ul>
+      </div>
 
       <div class="flex gap-4 flex-wrap">
         <a href="/editor" class="btn inline-block text-sky-200 border-sky-200">

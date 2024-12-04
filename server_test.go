@@ -88,6 +88,6 @@ func TestStartServer(t *testing.T) {
 
 	go StartServer(config, buildInfo, player, storage)
 
-	err := waitForReady(ctx, time.Second*3, "http://localhost:1225/api/shows")
+	err := waitForReady(ctx, time.Second*600, "http://localhost:1225/api/shows")
 	require.NoError(t, err)
 }

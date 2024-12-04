@@ -238,12 +238,9 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 		// Wait for an additional 1 second before ending this song
 		last := pi.keyframes[len(pi.keyframes) - 1]
 		elapsedBuffer := secs - last.Time
+		extraBuffer := 1.0
 
-		if elapsedBuffer < 1 {
-			fmt.Println("waiting extra buffer")
-		}
-
-		return elapsedBuffer >= 1, nil
+		return elapsedBuffer >= extraBuffer, nil
 	}
 
 	next := pi.keyframes[pi.keyframeIndex]
