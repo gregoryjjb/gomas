@@ -35,3 +35,12 @@ GET http://localhost:1225/api/playlists
 ###
 
 PUT http://localhost:1225/api/rename?from=carol_of_the_bells_69
+
+
+###
+
+GET http://127.0.0.1:1225/api/play/A%20Mad%20Russians%20Christmas
+
+###
+
+GET http://127.0.0.1:1226/api/play/A%20Mad%20Russians%20Christmas?slaveStartTimeMicro=1760300873577547

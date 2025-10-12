@@ -125,22 +125,22 @@
       <div class="mb-16">
         <h2 class="text-xl font-semibold mb-3">Playlists</h2>
         {{if .Playlists}}
-          <ul class="flex flex-col gap-3 pl-3">
-            {{range .Playlists}}
-            <li>
-              <p class="mb-2">{{.ID}}</p>
-              <ul class="pl-3">
-                {{range .Shows}}
-                <li>
-                  <p class="text-sm text-slate-400">{{$}} {{.}}</p>
-                </li>
-                {{end}}
-              </ul>
-            </li>
-            {{end}}
-          </ul>
+        <ul class="flex flex-col gap-3 pl-3">
+          {{range .Playlists}}
+          <li>
+            <p class="mb-2">{{.ID}}</p>
+            <ul class="pl-3">
+              {{range .Shows}}
+              <li>
+                <p class="text-sm text-slate-400">{{$}} {{.}}</p>
+              </li>
+              {{end}}
+            </ul>
+          </li>
+          {{end}}
+        </ul>
         {{else}}
-          <p class="text-gray-500 italic">No playlists</p>
+        <p class="text-gray-500 italic">No playlists</p>
         {{end}}
       </div>
 
@@ -223,6 +223,22 @@
           updatePlaying();
         }
       };
+
+      let state = null;
+
+      const stateFunc = async () => {
+        const oldState = state;
+        state = await fetch(`/api/state`).then(res => res.json());
+
+        if (oldState?.id === state?.id) {
+          console.log('State did not update', state);
+        } else {
+          console.log('State did update', state)
+        }
+
+        setTimeout(stateFunc, 2000);
+      }
+      stateFunc();
     </script>
   </body>
 </html>

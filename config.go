@@ -35,6 +35,7 @@ type ConfigTOML struct {
 	RestPeriod      *DurationMarshallable `toml:"rest_period"`
 	FramesPerSecond *int                  `toml:"frames_per_second"`
 	SpeakerBuffer   *DurationMarshallable `toml:"speaker_buffer"`
+	Slaves          []string
 }
 
 func GetEnvOr(key string, fallback string) string {

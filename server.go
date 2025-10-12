@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -309,7 +310,17 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			return err
 		}
 
-		player.Play(name)
+		startTimeStr := r.URL.Query().Get("slaveStartTimeMicro")
+
+		if startTimeStr != "" {
+			startTime, err := strconv.ParseInt(startTimeStr, 10, 64)
+			if err != nil {
+				return fmt.Errorf("slaveStartTimeMicro present but failed to parse: %w", err)
+			}
+			player.PlaySlave(name, startTime)
+		} else {
+			player.Play(name)
+		}
 
 		w.WriteHeader(http.StatusNoContent)
 		return nil
@@ -346,6 +357,19 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 	get("/api/logs", func(w http.ResponseWriter, r *http.Request) error {
 		BufferedLogs(w)
 		return nil
+	})
+
+	get("/api/state", func(w http.ResponseWriter, r *http.Request) error {
+		state := player.State()
+
+		if state == nil {
+			return RespondJSON(w, nil)
+		}
+
+		return RespondJSON(w, map[string]any{
+			"id":         state.ID,
+			"started_at": state.StartedAt.UnixMilli(),
+		})
 	})
 
 	r.Get("/ws", createWebsocketHandler(player))
