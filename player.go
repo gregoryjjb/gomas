@@ -167,7 +167,7 @@ type playerInternals struct {
 	audio   AudioPlayer
 	slaves  *Slaves
 
-	running       bool
+	runOnce       sync.Once
 	state         PlayerState
 	startTime     time.Time
 	queue         CircularList[string]
@@ -203,72 +203,68 @@ func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*p
 }
 
 func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) {
-	if pi.running {
-		plog.Fatal().Msg("Cannot call playerInternals.run more than once")
-	}
-	pi.running = true
-	plog.Print("Running player loop")
-
-	for {
-		if ctx.Err() != nil {
-			plog.Info().Msg("Aborting player")
-			pi.audio.Stop()
-			pi.audio.Close()
-			return
-		}
-
-		// Handle incoming message
-		select {
-		case msg := <-channel:
-			plog.Debug().
-				Str("command", string(msg.Command)).
-				Str("value", msg.Value).
-				Msg("Received message")
-
-			switch msg.Command {
-			case CommandPlay:
-				pi.clearCurrentShow()
-				pi.clearQueue()
-				pi.handleError(pi.playShow(msg.Value))
-
-			case CommandPlayAll:
-				pi.clearCurrentShow()
-				pi.clearQueue()
-				pi.handleError(pi.playAllShows())
-
-			case CommandStop:
-				pi.enterIdle()
-
-			case CommandNext:
-				pi.handleError(pi.playNextShow())
-			}
-		default:
-			// Do nothing
-		}
-
-		// Handle actions required by current state
-		switch pi.state {
-		case StatePlaying:
-			// t := time.Since(pi.startTime)
-			done, err := pi.executeKeyframe()
-			if err != nil {
-				pi.handleError(err)
-			} else if done {
-				plog.Print("Done signal received, ending current show")
-				pi.handleShowEnd()
+	pi.runOnce.Do(func() {
+		for {
+			if err := ctx.Err(); err != nil {
+				plog.Error().Err(err).Msg("Aborting player")
+				pi.audio.Stop()
+				pi.audio.Close()
+				return
 			}
 
-		case StateResting:
-			t := time.Since(pi.startTime)
-			if t >= pi.config.RestPeriod() {
-				pi.playNextShow()
-			}
-		}
+			// Handle incoming message
+			select {
+			case msg := <-channel:
+				plog.Debug().
+					Str("command", string(msg.Command)).
+					Str("value", msg.Value).
+					Msg("Received message")
 
-		fps := pi.config.FramesPerSecond()
-		delay := time.Second / time.Duration(fps)
-		time.Sleep(delay)
-	}
+				switch msg.Command {
+				case CommandPlay:
+					pi.clearCurrentShow()
+					pi.clearQueue()
+					pi.handleError(pi.playShow(msg.Value))
+
+				case CommandPlayAll:
+					pi.clearCurrentShow()
+					pi.clearQueue()
+					pi.handleError(pi.playAllShows())
+
+				case CommandStop:
+					pi.enterIdle()
+
+				case CommandNext:
+					pi.handleError(pi.playNextShow())
+				}
+			default:
+				// Do nothing
+			}
+
+			// Handle actions required by current state
+			switch pi.state {
+			case StatePlaying:
+				// t := time.Since(pi.startTime)
+				done, err := pi.executeKeyframe()
+				if err != nil {
+					pi.handleError(err)
+				} else if done {
+					plog.Print("Done signal received, ending current show")
+					pi.handleShowEnd()
+				}
+
+			case StateResting:
+				t := time.Since(pi.startTime)
+				if t >= pi.config.RestPeriod() {
+					pi.playNextShow()
+				}
+			}
+
+			fps := pi.config.FramesPerSecond()
+			delay := time.Second / time.Duration(fps)
+			time.Sleep(delay)
+		}
+	})
 }
 
 // executeKeyframe wirtes a keyframe to gpio based on
