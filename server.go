@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -313,7 +312,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		startTimeStr := r.URL.Query().Get("slaveStartTimeMicro")
 
 		if startTimeStr != "" {
-			startTime, err := strconv.ParseInt(startTimeStr, 10, 64)
+			startTime, err := UnmarshalStartTime(startTimeStr)
 			if err != nil {
 				return fmt.Errorf("slaveStartTimeMicro present but failed to parse: %w", err)
 			}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -28,11 +27,23 @@ func init() {
 type PlayerCommand string
 
 const (
-	CommandPlay    PlayerCommand = "play"
 	CommandPlayAll PlayerCommand = "playall"
 	CommandStop    PlayerCommand = "stop"
 	CommandNext    PlayerCommand = "next"
 )
+
+func (pc PlayerCommand) String() string {
+	return string(pc)
+}
+
+type commandPlay struct {
+	id        string
+	startedAt time.Time
+}
+
+func (c commandPlay) String() string {
+	return fmt.Sprintf("play(%q, %v)", c.id, c.startedAt)
+}
 
 type PlayerEvent struct {
 	State   PlayerState `json:"state"`
@@ -58,9 +69,8 @@ func (eps *ExternalPlayerState) Set(v string) {
 	eps.value = v
 }
 
-type PlayerMessage struct {
-	Command PlayerCommand
-	Value   string
+type PlayerMessage interface {
+	fmt.Stringer
 }
 
 type Player struct {
@@ -89,35 +99,28 @@ func NewPlayer(ctx context.Context, config *Config, storage *Storage, audio Audi
 }
 
 func (p *Player) Play(id string) {
-	p.commandChannel <- PlayerMessage{
-		Command: CommandPlay,
-		Value:   "#" + id,
+	p.commandChannel <- commandPlay{
+		id: id,
 	}
 }
 
-func (p *Player) PlaySlave(id string, startTime int64) {
-	p.commandChannel <- PlayerMessage{
-		Command: CommandPlay,
-		Value:   fmt.Sprintf("%d#%s", startTime, id),
+func (p *Player) PlaySlave(id string, startTime time.Time) {
+	p.commandChannel <- commandPlay{
+		id:        id,
+		startedAt: startTime,
 	}
 }
 
 func (p *Player) PlayAll() {
-	p.commandChannel <- PlayerMessage{
-		Command: CommandPlayAll,
-	}
+	p.commandChannel <- CommandPlayAll
 }
 
 func (p *Player) Stop() {
-	p.commandChannel <- PlayerMessage{
-		Command: CommandStop,
-	}
+	p.commandChannel <- CommandStop
 }
 
 func (p *Player) Next() {
-	p.commandChannel <- PlayerMessage{
-		Command: CommandNext,
-	}
+	p.commandChannel <- CommandNext
 }
 
 func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
@@ -166,8 +169,8 @@ type playerInternals struct {
 	config  *Config
 	audio   AudioPlayer
 	slaves  *Slaves
+	runOnce sync.Once
 
-	runOnce       sync.Once
 	state         PlayerState
 	startTime     time.Time
 	queue         CircularList[string]
@@ -202,7 +205,7 @@ func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*p
 	}, nil
 }
 
-func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) {
+func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 	pi.runOnce.Do(func() {
 		for {
 			if err := ctx.Err(); err != nil {
@@ -212,52 +215,9 @@ func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) 
 				return
 			}
 
-			// Handle incoming message
-			select {
-			case msg := <-channel:
-				plog.Debug().
-					Str("command", string(msg.Command)).
-					Str("value", msg.Value).
-					Msg("Received message")
-
-				switch msg.Command {
-				case CommandPlay:
-					pi.clearCurrentShow()
-					pi.clearQueue()
-					pi.handleError(pi.playShow(msg.Value))
-
-				case CommandPlayAll:
-					pi.clearCurrentShow()
-					pi.clearQueue()
-					pi.handleError(pi.playAllShows())
-
-				case CommandStop:
-					pi.enterIdle()
-
-				case CommandNext:
-					pi.handleError(pi.playNextShow())
-				}
-			default:
-				// Do nothing
-			}
-
-			// Handle actions required by current state
-			switch pi.state {
-			case StatePlaying:
-				// t := time.Since(pi.startTime)
-				done, err := pi.executeKeyframe()
-				if err != nil {
-					pi.handleError(err)
-				} else if done {
-					plog.Print("Done signal received, ending current show")
-					pi.handleShowEnd()
-				}
-
-			case StateResting:
-				t := time.Since(pi.startTime)
-				if t >= pi.config.RestPeriod() {
-					pi.playNextShow()
-				}
+			if err := pi.loopIteration(ch); err != nil {
+				plog.Err(err).Msg("Player loop encountered an error")
+				pi.enterIdle()
 			}
 
 			fps := pi.config.FramesPerSecond()
@@ -267,6 +227,65 @@ func (pi *playerInternals) run(ctx context.Context, channel chan PlayerMessage) 
 	})
 }
 
+func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
+	// Handle incoming message
+	select {
+	case msg := <-ch:
+		plog.Info().Stringer("command", msg).Msg("Received message")
+
+		switch msg := msg.(type) {
+		case commandPlay:
+			pi.clearCurrentShow()
+			pi.clearQueue()
+			if err := pi.playShow(msg.id, msg.startedAt); err != nil {
+				return fmt.Errorf("playShow: %w", err)
+			}
+
+		case PlayerCommand:
+			switch msg {
+			case CommandPlayAll:
+				pi.clearCurrentShow()
+				pi.clearQueue()
+				if err := pi.playAllShows(); err != nil {
+					return fmt.Errorf("playAllShows: %w", err)
+				}
+
+			case CommandStop:
+				pi.enterIdle()
+
+			case CommandNext:
+				if err := pi.playNextShow(); err != nil {
+					return fmt.Errorf("playNextShow: %w", err)
+				}
+			}
+		default:
+			return fmt.Errorf("received invalid message: %v", msg)
+		}
+	default:
+		// Do nothing, no messages to receive
+	}
+
+	// Handle actions required by current state
+	switch pi.state {
+	case StatePlaying:
+		done, err := pi.executeKeyframe()
+		if err != nil {
+			return err
+		} else if done {
+			plog.Print("End of current show keyframes reached")
+			pi.handleShowEnd()
+		}
+
+	case StateResting:
+		t := time.Since(pi.startTime)
+		if t >= pi.config.RestPeriod() {
+			pi.playNextShow()
+		}
+	}
+
+	return nil
+}
+
 // executeKeyframe wirtes a keyframe to gpio based on
 // how much time has passed since the start
 func (pi *playerInternals) executeKeyframe() (bool, error) {
@@ -274,7 +293,7 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 	t := time.Since(pi.startTime)
 	secs := (t - bias).Seconds()
 
-	if len(pi.keyframes) <= pi.keyframeIndex {
+	if pi.keyframeIndex >= len(pi.keyframes) {
 		// Keyframes are finished
 
 		// Wait for an additional 1 second before ending this song
@@ -320,16 +339,7 @@ func (pi *playerInternals) enterIdle() {
 	pi.songState = nil
 }
 
-func (pi *playerInternals) playShow(payload string) error {
-	plog.Info().Str("payload", payload).Msg("Playing show")
-
-	elements := strings.SplitN(payload, "#", 2)
-	if len(elements) != 2 {
-		return fmt.Errorf("could not parse %q as a play payload", payload)
-	}
-
-	id := elements[1]
-
+func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	data, err := pi.storage.ReadShowData(id)
 	if err != nil {
 		return err
@@ -340,13 +350,8 @@ func (pi *playerInternals) playShow(payload string) error {
 		return fmt.Errorf("show %q had zero keyframes", id)
 	}
 
-	if elements[0] != "" {
-		startTimeMicro, err := strconv.ParseInt(elements[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse start time: %w", err)
-		}
-
-		pi.startTime = time.UnixMicro(startTimeMicro)
+	if !startedAt.IsZero() {
+		pi.startTime = startedAt
 	} else {
 		audio, err := pi.storage.ReadAudio(id)
 		if err != nil {
@@ -357,11 +362,6 @@ func (pi *playerInternals) playShow(payload string) error {
 		if err != nil {
 			return err
 		}
-
-		// for _, slave := range pi.config.toml.Slaves {
-		// 	plog.Info().Str("slave_host", slave).Str("id", id).Int64("start_time", pi.startTime.UnixMicro()).Msg("Notifying slave")
-		// 	go notifySlave(slave, id, pi.startTime.UnixMicro())
-		// }
 
 		pi.slaves.Play(id, pi.startTime)
 	}
@@ -378,7 +378,11 @@ func (pi *playerInternals) playShow(payload string) error {
 		StartedAt: pi.startTime,
 	}
 
-	fmt.Println("Start time:", pi.startTime.UnixMicro())
+	plog.Info().
+		Str("id", id).
+		Time("start_time", pi.startTime).
+		Bool("slave", !startedAt.IsZero()).
+		Msg("Started playing show")
 
 	return nil
 }
@@ -387,7 +391,7 @@ func (pi *playerInternals) playNextShow() error {
 	pi.clearCurrentShow()
 	if pi.queue.Length() > 1 {
 		pi.queue.Advance()
-		if err := pi.playShow("#" + pi.queue.Current()); err != nil {
+		if err := pi.playShow(pi.queue.Current(), time.Time{}); err != nil {
 			return err
 		}
 	} else {
@@ -406,7 +410,7 @@ func (pi *playerInternals) playAllShows() error {
 	}
 
 	pi.queue.Replace(shows)
-	if err := pi.playShow("#" + pi.queue.Current()); err != nil {
+	if err := pi.playShow(pi.queue.Current(), time.Time{}); err != nil {
 		return err
 	}
 	return nil
@@ -433,15 +437,14 @@ func (pi *playerInternals) handleShowEnd() {
 	}
 }
 
-func (pi *playerInternals) handleError(err error) {
-	if err != nil {
-		plog.Err(err).Msg("Player error")
-		pi.enterIdle()
-	}
-}
-
 type Slaves struct {
 	hosts []url.URL
+}
+
+func (s *Slaves) send(u string) {
+	if _, err := http.Get(u); err != nil {
+		plog.Err(err).Msg("Failed to notify slave")
+	}
 }
 
 func (s *Slaves) Play(id string, startTime time.Time) {
@@ -449,15 +452,12 @@ func (s *Slaves) Play(id string, startTime time.Time) {
 
 		go func() {
 			q := make(url.Values)
-			q.Set("slaveStartTimeMicro", strconv.FormatInt(startTime.UnixMicro(), 10))
+			q.Set("slaveStartTimeMicro", MarshalStartTime(startTime))
 
-			u.Path = "/api/play/" + id
+			u.Path += "/api/play/" + id
 			u.RawQuery = q.Encode()
 
-			if _, err := http.Get(u.String()); err != nil {
-				fmt.Println("ERROR NOTIFYING SLAVE: %s", err)
-			}
-
+			s.send(u.String())
 		}()
 	}
 }
@@ -466,11 +466,26 @@ func (s *Slaves) Stop() {
 	for _, u := range s.hosts {
 
 		go func() {
-			u.Path = "/api/static"
+			u.Path += "/api/static"
 
-			if _, err := http.Get(u.String()); err != nil {
-				fmt.Println("ERROR NOTIFYING SLAVE: %s", err)
-			}
+			s.send(u.String())
 		}()
 	}
+}
+
+func MarshalStartTime(t time.Time) string {
+	return strconv.FormatInt(t.UnixMicro(), 10)
+}
+
+func UnmarshalStartTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+
+	micros, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return time.UnixMicro(micros), nil
 }
