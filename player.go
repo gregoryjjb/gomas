@@ -185,7 +185,7 @@ type playerInternals struct {
 func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*playerInternals, error) {
 	slaves := &Slaves{}
 
-	for _, slaveHost := range config.toml.Slaves {
+	for _, slaveHost := range config.Slaves() {
 		u, err := url.Parse(slaveHost)
 		if err != nil {
 			return nil, fmt.Errorf("invalid slave host %q in config: %w", slaveHost, err)
@@ -306,7 +306,7 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 
 	next := pi.keyframes[pi.keyframeIndex]
 	if next.Time <= secs {
-		if err := gpio.Execute(next.States); err != nil {
+		if err := gpio.Execute(next.States[pi.config.ChannelOffset():]); err != nil {
 			return false, err
 		}
 		pi.keyframeIndex += 1
@@ -348,6 +348,15 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	plog.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
 	if len(pi.keyframes) == 0 {
 		return fmt.Errorf("show %q had zero keyframes", id)
+	}
+
+	offset := pi.config.ChannelOffset()
+
+	if offset >= len(pi.keyframes[0].States) {
+		plog.Warn().
+			Int("channel_offset", offset).
+			Int("actual_channel_count", len(pi.keyframes[0].States)).
+			Msg("Configured channel offset will cause no keyframes to be played")
 	}
 
 	if !startedAt.IsZero() {

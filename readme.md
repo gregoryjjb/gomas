@@ -40,6 +40,9 @@ data_dir = "/path/to/data"
 # BCM pin numbering of channels; necessary to play any lights
 pinout = [1, 2, 3, 4, 5, 6, 7, 8]
 
+# Skip this many channels when mapping channels to pins; useful when this instance is responsible for playing only a subset of channels
+channel_offset = 8
+
 # How long to rest in between each song
 rest_period = "5s"
 
@@ -99,3 +102,9 @@ To build AND release a new version (requires GitHub CLI installed):
 ```sh
 scripts/release.ps1 v1.2.3
 ```
+
+## Time sync
+
+1. Install chrony `apt install chrony`
+2. Update the config `sudo nano /etc/chrony/chrony.conf` to have your time server
+3. 

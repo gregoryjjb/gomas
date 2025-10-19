@@ -1,11 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
@@ -31,30 +31,12 @@ func (d *DurationMarshallable) UnmarshalText(b []byte) error {
 type ConfigTOML struct {
 	DataDir         string                `toml:"data_dir"`
 	Pinout          []int                 `toml:"pinout"`
+	ChannelOffset   int                   `toml:"channel_offset"`
 	Bias            *DurationMarshallable `toml:"bias"`
 	RestPeriod      *DurationMarshallable `toml:"rest_period"`
 	FramesPerSecond *int                  `toml:"frames_per_second"`
 	SpeakerBuffer   *DurationMarshallable `toml:"speaker_buffer"`
 	Slaves          []string              `toml:"slaves"`
-}
-
-func GetEnvOr(key string, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		value = fallback
-	}
-	return value
-}
-
-// fallback returns the first non-zero value
-func fallback[T comparable](values ...T) T {
-	var t T
-	for _, value := range values {
-		if value != t {
-			return value
-		}
-	}
-	return t
 }
 
 const ConfigFilename = "gomas.toml"
@@ -124,117 +106,142 @@ func FindToml(fs GomasFS, flags Flags, getEnv GetEnver) (string, error) {
 func ParseToml(fs GomasFS, path string) (*ConfigTOML, error) {
 	configFile, err := fs.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open config: %w", err)
 	}
 	defer configFile.Close()
 
 	var c ConfigTOML
 	if err := toml.NewDecoder(configFile).Decode(&c); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
 	if c.DataDir == "" {
 		return nil, fmt.Errorf("missing required config field data_dir")
 	}
+
 	dirExists, err := afero.DirExists(fs, c.DataDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("checking for data directory existence: %w", err)
 	}
+
 	if !dirExists {
 		return nil, fmt.Errorf("data directory not found: %q", c.DataDir)
+	}
+
+	if c.ChannelOffset < 0 {
+		return nil, fmt.Errorf("channel_offset must not be negative, received: %q", c.ChannelOffset)
 	}
 
 	return &c, nil
 }
 
-func LoadConfig(fs GomasFS, flags Flags, getEnv GetEnver) (*Config, error) {
-	path, err := FindToml(fs, flags, getEnv)
-	if err != nil {
-		return nil, err
-	}
-
-	toml, err := ParseToml(fs, path)
-	if err != nil {
-		return nil, err
-	}
-	log.Info().Str("path", path).Interface("config", toml).Msg("Config TOML loaded")
-
-	return &Config{
-		toml:         toml,
-		TomlPath:     path,
-		Host:         getEnv("HOST"),
-		Port:         fallback(getEnv("PORT"), "1225"),
-		DisableEmbed: getEnv("GOMAS_DISABLE_EMBED") != "",
-	}, nil
-}
-
 type Config struct {
-	sync.RWMutex
+	fs     GomasFS
+	getEnv GetEnver
+	flags  Flags
 
-	toml *ConfigTOML
-
-	TomlPath     string
-	Host         string
-	Port         string
-	DisableEmbed bool
+	toml atomic.Pointer[ConfigTOML]
 }
 
-func NewConfig(toml ConfigTOML) *Config {
-	return &Config{toml: &toml}
+func NewConfig(fs GomasFS, flags Flags, getEnv GetEnver) (*Config, error) {
+	config := &Config{
+		fs:     fs,
+		flags:  flags,
+		getEnv: getEnv,
+	}
+
+	// In theory this can be called again at any point to reload config without restarting
+	if err := config.loadToml(); err != nil {
+		return nil, fmt.Errorf("load toml: %w", err)
+	}
+
+	return config, nil
+}
+
+func (c *Config) loadToml() error {
+	path, err := FindToml(c.fs, c.flags, c.getEnv)
+	if err != nil {
+		return fmt.Errorf("find toml: %w", err)
+	}
+
+	toml, err := ParseToml(c.fs, path)
+	if err != nil {
+		return fmt.Errorf("parse toml: %w", err)
+	}
+
+	c.toml.Store(toml)
+
+	log.Info().Str("path", path).Interface("config", toml).Msg("Loaded TOML config")
+
+	return nil
+}
+
+func (c *Config) Host() string {
+	return c.getEnv("HOST")
+}
+
+func (c *Config) Port() string {
+	return cmp.Or(c.getEnv("PORT"), "1225")
+}
+
+func (c *Config) DisableEmbed() bool {
+	return c.getEnv("GOMAS_DISABLE_EMBED") != ""
 }
 
 func (c *Config) DataDir() string {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.toml.DataDir
+	return c.toml.Load().DataDir
 }
 
 func (c *Config) Pinout() []int {
-	c.RLock()
-	defer c.RUnlock()
+	return c.toml.Load().Pinout
+}
 
-	cloned := make([]int, len(c.toml.Pinout))
-	copy(cloned, c.toml.Pinout)
-	return cloned
+func (c *Config) ChannelOffset() int {
+	return c.toml.Load().ChannelOffset
 }
 
 func (c *Config) Bias() time.Duration {
-	c.RLock()
-	defer c.RUnlock()
+	bias := c.toml.Load().Bias
 
-	if c.toml.Bias != nil {
-		return time.Duration(*c.toml.Bias)
+	if bias != nil {
+		return time.Duration(*bias)
 	}
+
 	return time.Millisecond * 100
 }
 
 func (c *Config) RestPeriod() time.Duration {
-	c.RLock()
-	defer c.RUnlock()
+	restPeriod := c.toml.Load().RestPeriod
 
-	if c.toml.RestPeriod != nil {
-		return time.Duration(*c.toml.RestPeriod)
+	if restPeriod != nil {
+		return time.Duration(*restPeriod)
 	}
+
 	return time.Second * 5
 }
 
 func (c *Config) FramesPerSecond() int {
-	c.RLock()
-	defer c.RUnlock()
-
-	if c.toml.FramesPerSecond != nil {
-		return *c.toml.FramesPerSecond
-	}
-	return 120
+	return fallbackIfNil(c.toml.Load().FramesPerSecond, 120)
 }
 
 func (c *Config) SpeakerBuffer() time.Duration {
-	c.RLock()
-	defer c.RUnlock()
+	speakerBuffer := c.toml.Load().SpeakerBuffer
 
-	if c.toml.SpeakerBuffer != nil {
-		return time.Duration(*c.toml.SpeakerBuffer)
+	if speakerBuffer != nil {
+		return time.Duration(*speakerBuffer)
 	}
-	return time.Millisecond * 100
+
+	return time.Duration(time.Millisecond * 100)
+}
+
+func (c *Config) Slaves() []string {
+	return c.toml.Load().Slaves
+}
+
+func fallbackIfNil[T any](a *T, b T) T {
+	if a == nil {
+		return b
+	}
+
+	return *a
 }

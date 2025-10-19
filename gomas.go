@@ -87,7 +87,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		Str("commit_hash", buildInfo.CommitHash).
 		Msg("Initializing Gomas")
 
-	config, err := LoadConfig(fs, flags, getEnv)
+	config, err := NewConfig(fs, flags, getEnv)
 	if err != nil {
 		return err
 	}

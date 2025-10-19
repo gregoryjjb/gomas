@@ -91,7 +91,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 
 func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
 	// Ensure templates parse correctly
-	_, err := GetTemplates(config.DisableEmbed)
+	_, err := GetTemplates(config.DisableEmbed())
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			pagedata.Exist[show] = true
 		}
 
-		tmpl, err := GetTemplates(config.DisableEmbed)
+		tmpl, err := GetTemplates(config.DisableEmbed())
 		if err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 	})
 
 	get("/config", func(w http.ResponseWriter, r *http.Request) error {
-		t, err := GetTemplates(config.DisableEmbed)
+		t, err := GetTemplates(config.DisableEmbed())
 		if err != nil {
 			return err
 		}
@@ -150,10 +150,10 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 	})
 
 	// Cram the legacy show editor in
-	FileServer(r, "/editor", GetEditorFS(config.DisableEmbed))
+	FileServer(r, "/editor", GetEditorFS(config.DisableEmbed()))
 
 	get("/logs", func(w http.ResponseWriter, r *http.Request) error {
-		t, err := GetTemplates(config.DisableEmbed)
+		t, err := GetTemplates(config.DisableEmbed())
 		if err != nil {
 			return err
 		}
@@ -373,7 +373,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 
 	r.Get("/ws", createWebsocketHandler(player))
 
-	staticFS, err := GetStaticFS(config.DisableEmbed)
+	staticFS, err := GetStaticFS(config.DisableEmbed())
 	if err != nil {
 		return err
 	}
@@ -384,7 +384,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		return nil
 	})
 
-	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
+	address := fmt.Sprintf("%s:%s", config.Host(), config.Port())
 	log.Info().Str("listen", address).Msg("launching server")
 	return http.ListenAndServe(address, r)
 }

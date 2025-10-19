@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,15 +68,30 @@ func waitForReady(
 	}
 }
 
+func newTestConfig(t *testing.T, flags Flags, env map[string]string, toml string) *Config {
+	fs := NewGomasMemFS()
+
+	require.NoError(t, fs.Mkdir("/data", 0777))
+	require.NoError(t, afero.WriteFile(fs, "/gomas.toml", []byte(toml), 0777))
+
+	c, err := NewConfig(fs, flags, func(s string) string { return env[s] })
+	require.NoError(t, err)
+
+	return c
+}
+
 func TestStartServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	config := NewConfig(ConfigTOML{
-		DataDir: "/data",
-	})
-	config.Host = "127.0.0.1"
-	config.Port = "1225"
+	config := newTestConfig(t,
+		Flags{},
+		map[string]string{
+			"HOST": "127.0.0.1",
+			"PORT": "1225",
+		},
+		`data_dir = "/data"`,
+	)
 
 	fs := NewGomasMemFS()
 	fs.MkdirAll("/data/projects", 0755)
