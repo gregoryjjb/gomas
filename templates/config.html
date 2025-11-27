@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="/dist/output.css" />
   </head>
   <body>
-    <div class="app-gutters">
-      <h1 class="inline-block text-3xl mb-2">
+    <div class="app-gutters flex flex-col gap-4">
+      <h1 class="inline-block text-3xl">
         <span
           class="font-bold text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-rose-300"
         >
@@ -17,10 +17,29 @@
         </span>
         Configuration
       </h1>
-      <p class="text-slate-400 mb-12">{{.Version}}</p>
+
+      <p class="text-slate-400">{{.Version}}</p>
+
+      <p>
+        Using file
+        <span class="font-mono px-1 py-0.5 bg-slate-800 rounded-sm"
+          >{{.ConfigPath}}</span
+        >
+      </p>
+
+      <div class="mb-4">
+        <textarea
+          id="config-editor"
+          class="w-full h-96 bg-slate-700 px-3 py-2 rounded font-mono outline-none"
+          spellcheck="false"
+        >
+{{.ConfigToml}}</textarea
+        >
+      </div>
 
       <div class="flex gap-4">
         <button
+          id="save-button"
           class="btn border-emerald-300 text-emerald-300 hover:bg-emerald-950"
         >
           <svg
@@ -48,5 +67,26 @@
         </a>
       </div>
     </div>
+
+    <script type="text/javascript">
+      document.getElementById("save-button").addEventListener("click", (e) => {
+        const newValue = document.getElementById("config-editor").value;
+
+        console.log(newValue);
+
+        fetch("/api/config", {
+          method: "PUT",
+          body: newValue,
+        })
+          .catch((e) => alert(e))
+          .then((r) => {
+            if (r.ok) {
+              alert("Done");
+            } else {
+              alert("FAILED TO SAVE!");
+            }
+          });
+      });
+    </script>
   </body>
 </html>

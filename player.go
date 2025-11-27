@@ -11,18 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"gregoryjjb/gomas/gpio"
 	"gregoryjjb/gomas/pubsub"
 )
 
-var plog zerolog.Logger
-
-func init() {
-	plog = log.With().Str("component", "player").Logger()
-}
+var plog = log.With().Str("component", "player").Logger()
 
 type PlayerCommand string
 

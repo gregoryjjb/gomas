@@ -34,7 +34,7 @@ GET http://localhost:1225/api/playlists
 
 ###
 
-PUT http://localhost:1225/api/rename?from=carol_of_the_bells_69
+PUT http://localhost:1225/api/rename?from=carol_of_the_bells&to=Carol%20of%20the%20Bells
 
 
 ###
@@ -44,3 +44,15 @@ GET http://127.0.0.1:1225/api/play/A%20Mad%20Russians%20Christmas
 ###
 
 GET http://127.0.0.1:1226/api/play/A%20Mad%20Russians%20Christmas?slaveStartTimeMicro=1760300873577547
+
+###
+
+GET http://127.0.0.1:1225/api/config
+
+###
+
+PUT http://127.0.0.1:1225/api/config
+
+data_dir = "foobar"
+# channel_offset = -1
+# slaves = ["http://localhost:1226"]

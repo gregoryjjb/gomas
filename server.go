@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"gregoryjjb/gomas/gpio"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -146,7 +147,11 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			return err
 		}
 
-		return t.ExecuteTemplate(w, "config.html", struct{ Version string }{version})
+		return t.ExecuteTemplate(w, "config.html", struct {
+			Version    string
+			ConfigToml string
+			ConfigPath string
+		}{version, config.RawToml(), config.tomlPath})
 	})
 
 	// Cram the legacy show editor in
@@ -272,6 +277,10 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")
 
+		if from == "" || to == "" {
+			return fmt.Errorf("query params 'from' and 'to' required")
+		}
+
 		return storage.RenameShow(from, to)
 	})
 
@@ -369,6 +378,23 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			"id":         state.ID,
 			"started_at": state.StartedAt.UnixMilli(),
 		})
+	})
+
+	get("/api/config", func(w http.ResponseWriter, r *http.Request) error {
+		w.Header().Add("Content-Type", "text/toml")
+
+		_, err := w.Write([]byte(config.RawToml()))
+		return err
+	})
+
+	put("/api/config", func(w http.ResponseWriter, r *http.Request) error {
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+
+		return config.WriteToml(string(body))
 	})
 
 	r.Get("/ws", createWebsocketHandler(player))

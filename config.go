@@ -3,6 +3,8 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -29,6 +31,8 @@ func (d *DurationMarshallable) UnmarshalText(b []byte) error {
 }
 
 type ConfigTOML struct {
+	raw string
+
 	DataDir         string                `toml:"data_dir"`
 	Pinout          []int                 `toml:"pinout"`
 	ChannelOffset   int                   `toml:"channel_offset"`
@@ -103,17 +107,13 @@ func FindToml(fs GomasFS, flags Flags, getEnv GetEnver) (string, error) {
 	return "", fmt.Errorf("could not find %s at any of the expected locations: %s", ConfigFilename, strings.Join(toSearch, ", "))
 }
 
-func ParseToml(fs GomasFS, path string) (*ConfigTOML, error) {
-	configFile, err := fs.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open config: %w", err)
-	}
-	defer configFile.Close()
-
+func ParseToml(raw string, fs GomasFS) (*ConfigTOML, error) {
 	var c ConfigTOML
-	if err := toml.NewDecoder(configFile).Decode(&c); err != nil {
+	if err := toml.Unmarshal([]byte(raw), &c); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
+
+	c.raw = raw
 
 	if c.DataDir == "" {
 		return nil, fmt.Errorf("missing required config field data_dir")
@@ -129,7 +129,7 @@ func ParseToml(fs GomasFS, path string) (*ConfigTOML, error) {
 	}
 
 	if c.ChannelOffset < 0 {
-		return nil, fmt.Errorf("channel_offset must not be negative, received: %q", c.ChannelOffset)
+		return nil, fmt.Errorf("channel_offset must not be negative, received: %d", c.ChannelOffset)
 	}
 
 	return &c, nil
@@ -140,14 +140,22 @@ type Config struct {
 	getEnv GetEnver
 	flags  Flags
 
-	toml atomic.Pointer[ConfigTOML]
+	tomlPath string
+	toml     atomic.Pointer[ConfigTOML]
 }
 
 func NewConfig(fs GomasFS, flags Flags, getEnv GetEnver) (*Config, error) {
+
+	path, err := FindToml(fs, flags, getEnv)
+	if err != nil {
+		return nil, fmt.Errorf("find config toml: %w", err)
+	}
+
 	config := &Config{
-		fs:     fs,
-		flags:  flags,
-		getEnv: getEnv,
+		fs:       fs,
+		flags:    flags,
+		getEnv:   getEnv,
+		tomlPath: path,
 	}
 
 	// In theory this can be called again at any point to reload config without restarting
@@ -159,21 +167,58 @@ func NewConfig(fs GomasFS, flags Flags, getEnv GetEnver) (*Config, error) {
 }
 
 func (c *Config) loadToml() error {
-	path, err := FindToml(c.fs, c.flags, c.getEnv)
+	configFile, err := c.fs.Open(c.tomlPath)
 	if err != nil {
-		return fmt.Errorf("find toml: %w", err)
+		return fmt.Errorf("open config: %w", err)
+	}
+	defer configFile.Close()
+
+	s, err := io.ReadAll(configFile)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
 	}
 
-	toml, err := ParseToml(c.fs, path)
+	toml, err := ParseToml(string(s), c.fs)
 	if err != nil {
 		return fmt.Errorf("parse toml: %w", err)
 	}
 
 	c.toml.Store(toml)
 
-	log.Info().Str("path", path).Interface("config", toml).Msg("Loaded TOML config")
+	log.Info().Str("path", c.tomlPath).Interface("config", toml).Msg("Loaded TOML config")
 
 	return nil
+}
+
+func (c *Config) WriteToml(s string) error {
+	toml, err := ParseToml(s, c.fs)
+	if err != nil {
+		return fmt.Errorf("parsing new toml: %w", err)
+	}
+
+	configFile, err := c.fs.OpenFile(c.tomlPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("open config: %w", err)
+	}
+	defer configFile.Close()
+
+	if _, err := configFile.Write([]byte(s)); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	
+	c.toml.Store(toml)
+
+	log.Info().Str("path", c.tomlPath).Interface("config", toml).Msg("Updated TOML config")
+
+	return nil
+}
+
+func (c *Config) RawToml() string {
+	return c.toml.Load().raw
+}
+
+func (c *Config) ConfigPath() string {
+	return c.tomlPath
 }
 
 func (c *Config) Host() string {
