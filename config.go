@@ -222,7 +222,7 @@ func (c *Config) ConfigPath() string {
 }
 
 func (c *Config) Host() string {
-	return c.getEnv("HOST")
+	return cmp.Or(c.getEnv("HOST"), "127.0.0.1")
 }
 
 func (c *Config) Port() string {
