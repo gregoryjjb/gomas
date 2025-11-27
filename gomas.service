@@ -6,6 +6,7 @@ Description=Christmas lights
 [Service]
 Type=simple
 User={{.User}}
+Environment="HOST=0.0.0.0"
 ExecStart={{.BinaryPath}}
 
 [Install]
