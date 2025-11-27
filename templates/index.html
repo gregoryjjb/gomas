@@ -34,7 +34,7 @@
         </button>
         <button
           class="btn border-gray-400 text-gray-400 hover:bg-gray-950"
-          onclick="on()"
+          onclick="off()"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -67,7 +67,7 @@
         </button>
         <button
           class="btn border-rose-400 text-rose-400 hover:bg-rose-950"
-          onclick="stop()"
+          onclick="on()"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -193,16 +193,16 @@
         fetch(`/api/playall`);
       };
 
-      const stop = () => {
-        fetch("/api/static");
-      };
-
       const next = () => {
         fetch("/api/next");
       };
 
       const on = () => {
         fetch("/api/static?value=1");
+      };
+
+      const off = () => {
+        fetch("/api/static");
       };
 
       function updatePlaying(id) {
@@ -226,19 +226,19 @@
 
       let state = null;
 
-      const stateFunc = async () => {
-        const oldState = state;
-        state = await fetch(`/api/state`).then(res => res.json());
+      // const stateFunc = async () => {
+      //   const oldState = state;
+      //   state = await fetch(`/api/state`).then(res => res.json());
 
-        if (oldState?.id === state?.id) {
-          console.log('State did not update', state);
-        } else {
-          console.log('State did update', state)
-        }
+      //   if (oldState?.id === state?.id) {
+      //     console.log('State did not update', state);
+      //   } else {
+      //     console.log('State did update', state)
+      //   }
 
-        setTimeout(stateFunc, 2000);
-      }
-      stateFunc();
+      //   setTimeout(stateFunc, 2000);
+      // }
+      // stateFunc();
     </script>
   </body>
 </html>

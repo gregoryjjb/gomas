@@ -73,6 +73,18 @@ In another terminal start the CSS build in watch mode:
 npm run dev
 ```
 
+With hot reloading (this is missing the ldflags):
+
+```sh
+modd
+```
+
+To start a slave instance with hot reloading:
+
+```sh
+$env:PORT=1226; $env:GOMAS_CONFIG="gomas-slave.toml"; modd
+```
+
 ### Dev dependencies
 
 - Go (obviously)

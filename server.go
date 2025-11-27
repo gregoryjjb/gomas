@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"gregoryjjb/gomas/gpio"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -345,11 +343,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 	get("/api/static", func(w http.ResponseWriter, r *http.Request) error {
 		state := r.URL.Query().Get("value") == "1"
 
-		player.Stop()
-
-		// This is hacky but I want to be sure the player is not executing a frame
-		time.Sleep(time.Millisecond * 10)
-		gpio.SetAll(state)
+		player.Static(state)
 
 		w.WriteHeader(http.StatusNoContent)
 		return nil

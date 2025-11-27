@@ -23,7 +23,6 @@ type PlayerCommand string
 
 const (
 	CommandPlayAll PlayerCommand = "playall"
-	CommandStop    PlayerCommand = "stop"
 	CommandNext    PlayerCommand = "next"
 )
 
@@ -38,6 +37,17 @@ type commandPlay struct {
 
 func (c commandPlay) String() string {
 	return fmt.Sprintf("play(%q, %v)", c.id, c.startedAt)
+}
+
+type commandStatic bool
+
+func (c commandStatic) String() string {
+	s := "off"
+	if c {
+		s = "on"
+	}
+
+	return fmt.Sprintf("static(%s)", s)
 }
 
 type PlayerEvent struct {
@@ -110,8 +120,8 @@ func (p *Player) PlayAll() {
 	p.commandChannel <- CommandPlayAll
 }
 
-func (p *Player) Stop() {
-	p.commandChannel <- CommandStop
+func (p *Player) Static(state bool) {
+	p.commandChannel <- commandStatic(state)
 }
 
 func (p *Player) Next() {
@@ -212,7 +222,7 @@ func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 
 			if err := pi.loopIteration(ch); err != nil {
 				plog.Err(err).Msg("Player loop encountered an error")
-				pi.enterIdle()
+				pi.enterIdle(false)
 			}
 
 			fps := pi.config.FramesPerSecond()
@@ -236,6 +246,9 @@ func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
 				return fmt.Errorf("playShow: %w", err)
 			}
 
+		case commandStatic:
+			pi.enterIdle(bool(msg))
+
 		case PlayerCommand:
 			switch msg {
 			case CommandPlayAll:
@@ -244,9 +257,6 @@ func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
 				if err := pi.playAllShows(); err != nil {
 					return fmt.Errorf("playAllShows: %w", err)
 				}
-
-			case CommandStop:
-				pi.enterIdle()
 
 			case CommandNext:
 				if err := pi.playNextShow(); err != nil {
@@ -311,8 +321,6 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 }
 
 func (pi *playerInternals) clearCurrentShow() {
-	pi.slaves.Stop()
-
 	pi.audio.Stop()
 	pi.keyframes = nil
 	pi.keyframeIndex = 0
@@ -322,13 +330,19 @@ func (pi *playerInternals) clearQueue() {
 	pi.queue.Clear()
 }
 
-func (pi *playerInternals) enterIdle() {
+func (pi *playerInternals) enterIdle(state bool) {
 	pi.clearCurrentShow()
 	pi.clearQueue()
+
 	pi.state = StateIdle
 	pi.ps.Publish(PlayerEvent{
 		State: StateIdle,
 	})
+
+	gpio.SetAll(state)
+
+	pi.slaves.Static(state)
+
 	pi.songStateMu.Lock()
 	defer pi.songStateMu.Unlock()
 	pi.songState = nil
@@ -393,14 +407,16 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 
 func (pi *playerInternals) playNextShow() error {
 	pi.clearCurrentShow()
+
 	if pi.queue.Length() > 1 {
 		pi.queue.Advance()
 		if err := pi.playShow(pi.queue.Current(), time.Time{}); err != nil {
 			return err
 		}
 	} else {
-		pi.enterIdle()
+		pi.enterIdle(true)
 	}
+
 	return nil
 }
 
@@ -437,7 +453,7 @@ func (pi *playerInternals) handleShowEnd() {
 		pi.startTime = time.Now()
 	} else {
 		// No more items in queue, stop
-		pi.enterIdle()
+		pi.enterIdle(true)
 	}
 }
 
@@ -466,11 +482,16 @@ func (s *Slaves) Play(id string, startTime time.Time) {
 	}
 }
 
-func (s *Slaves) Stop() {
+func (s *Slaves) Static(state bool) {
 	for _, u := range s.hosts {
-
 		go func() {
 			u.Path += "/api/static"
+
+			if state {
+				q := u.Query()
+				q.Add("value", "1")
+				u.RawQuery = q.Encode()
+			}
 
 			s.send(u.String())
 		}()
