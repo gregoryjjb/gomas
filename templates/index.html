@@ -211,34 +211,18 @@
         });
       }
 
-      // Websocket
-      const url = "ws://" + location.host + "/ws";
-      const socket = new WebSocket(url);
-      socket.onmessage = (message) => {
-        console.log(message);
-        const event = JSON.parse(message.data);
-        if (event.state === "playing") {
-          updatePlaying(event.payload);
-        } else if (event.state === "idle") {
-          updatePlaying();
-        }
-      };
-
-      let state = null;
-
-      // const stateFunc = async () => {
-      //   const oldState = state;
-      //   state = await fetch(`/api/state`).then(res => res.json());
-
-      //   if (oldState?.id === state?.id) {
-      //     console.log('State did not update', state);
-      //   } else {
-      //     console.log('State did update', state)
+      // // Disabling because it's messy and untested
+      // const url = "ws://" + location.host + "/ws";
+      // const socket = new WebSocket(url);
+      // socket.onmessage = (message) => {
+      //   console.log(message);
+      //   const event = JSON.parse(message.data);
+      //   if (event.state === "playing") {
+      //     updatePlaying(event.payload);
+      //   } else if (event.state === "idle") {
+      //     updatePlaying();
       //   }
-
-      //   setTimeout(stateFunc, 2000);
-      // }
-      // stateFunc();
+      // };
     </script>
   </body>
 </html>

@@ -14,7 +14,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"gregoryjjb/gomas/gpio"
-	"gregoryjjb/gomas/pubsub"
 )
 
 var plog = log.With().Str("component", "player").Logger()
@@ -50,43 +49,16 @@ func (c commandStatic) String() string {
 	return fmt.Sprintf("static(%s)", s)
 }
 
-type PlayerEvent struct {
-	State   PlayerState `json:"state"`
-	Payload string      `json:"payload"`
-}
-
-type ExternalPlayerState struct {
-	mutex sync.RWMutex
-	value string
-}
-
-func (eps *ExternalPlayerState) Get() string {
-	eps.mutex.RLock()
-	defer eps.mutex.RUnlock()
-
-	return eps.value
-}
-
-func (eps *ExternalPlayerState) Set(v string) {
-	eps.mutex.Lock()
-	defer eps.mutex.Unlock()
-
-	eps.value = v
-}
-
 type PlayerMessage interface {
 	fmt.Stringer
 }
 
 type Player struct {
 	commandChannel chan PlayerMessage
-	state          *ExternalPlayerState
-	pubsub         *pubsub.Pubsub[PlayerEvent]
 	internals      *playerInternals
 }
 
 func NewPlayer(ctx context.Context, config *Config, storage *Storage, audio AudioPlayer) *Player {
-	state := &ExternalPlayerState{}
 	ch := make(chan PlayerMessage)
 	// go workerLoop(ch, state)
 	pi, err := newPlayerInternals(config, storage, audio)
@@ -97,8 +69,6 @@ func NewPlayer(ctx context.Context, config *Config, storage *Storage, audio Audi
 
 	return &Player{
 		commandChannel: ch,
-		state:          state,
-		pubsub:         pi.ps,
 		internals:      pi,
 	}
 }
@@ -126,25 +96,6 @@ func (p *Player) Static(state bool) {
 
 func (p *Player) Next() {
 	p.commandChannel <- CommandNext
-}
-
-func (p *Player) Subscribe() (func(), <-chan PlayerEvent) {
-	handle, ch := p.pubsub.Subscribe()
-	return func() {
-		p.pubsub.Unsubscribe(handle)
-	}, ch
-}
-
-func (p *Player) State() *SongState {
-	p.internals.songStateMu.RLock()
-	defer p.internals.songStateMu.RUnlock()
-
-	if p.internals.songState == nil {
-		return nil
-	}
-
-	s := *p.internals.songState
-	return &s
 }
 
 //////////////////////////////////
@@ -181,10 +132,6 @@ type playerInternals struct {
 	queue         CircularList[string]
 	keyframes     []FlatKeyframe
 	keyframeIndex int
-
-	ps          *pubsub.Pubsub[PlayerEvent]
-	songState   *SongState
-	songStateMu sync.RWMutex
 }
 
 func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*playerInternals, error) {
@@ -205,8 +152,6 @@ func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*p
 		slaves:  slaves,
 
 		state: StateIdle,
-
-		ps: pubsub.New[PlayerEvent](),
 	}, nil
 }
 
@@ -335,17 +280,10 @@ func (pi *playerInternals) enterIdle(state bool) {
 	pi.clearQueue()
 
 	pi.state = StateIdle
-	pi.ps.Publish(PlayerEvent{
-		State: StateIdle,
-	})
 
 	gpio.SetAll(state)
 
 	pi.slaves.Static(state)
-
-	pi.songStateMu.Lock()
-	defer pi.songStateMu.Unlock()
-	pi.songState = nil
 }
 
 func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
@@ -385,16 +323,6 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	}
 
 	pi.state = StatePlaying
-	pi.ps.Publish(PlayerEvent{
-		State:   StatePlaying,
-		Payload: id,
-	})
-	pi.songStateMu.Lock()
-	defer pi.songStateMu.Unlock()
-	pi.songState = &SongState{
-		ID:        id,
-		StartedAt: pi.startTime,
-	}
 
 	plog.Info().
 		Str("id", id).
@@ -446,10 +374,6 @@ func (pi *playerInternals) handleShowEnd() {
 			Msg("Resting")
 
 		pi.state = StateResting
-		pi.ps.Publish(PlayerEvent{
-			State:   StateResting,
-			Payload: pi.queue.PeekNext(),
-		})
 		pi.startTime = time.Now()
 	} else {
 		// No more items in queue, stop

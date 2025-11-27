@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"nhooyr.io/websocket"
 )
 
@@ -22,38 +20,24 @@ func createWebsocketHandler(player *Player) http.HandlerFunc {
 		}
 		defer c.Close(websocket.StatusInternalError, "the sky is falling")
 
-		// player.Subscribe(func(s string) {
-		// 	if err := c.Write(r.Context(), websocket.MessageText, []byte(s)); err != nil {
-		// 		log.Err(err).Msg("Websocket write failed")
+		// Disabling all this because it's messy and untested
+
+		// unsub, ch := player.Subscribe()
+		// defer unsub()
+
+		// for msg := range ch {
+		// 	js, err := json.Marshal(msg)
+		// 	if err != nil {
+		// 		log.Err(err).Msg("Failed to marshal event payload for websocket")
+		// 		continue
 		// 	}
-		// })
 
-		unsub, ch := player.Subscribe()
-		defer unsub()
-
-		for msg := range ch {
-			js, err := json.Marshal(msg)
-			if err != nil {
-				log.Err(err).Msg("Failed to marshal event payload for websocket")
-				continue
-			}
-
-			if err := writeTimeout(r.Context(), 5*time.Second, c, js); err != nil {
-				break
-			}
-		}
-
-		log.Info().Msg("Websocket seems to have closed?")
-
-		// var v interface{}
-		// err = wsjson.Read(r.Context(), c, &v)
-		// if err != nil {
-		// 	// ...
+		// 	if err := writeTimeout(r.Context(), 5*time.Second, c, js); err != nil {
+		// 		break
+		// 	}
 		// }
 
-		// log.Printf("received: %v", v)
-
-		// c.Close(websocket.StatusNormalClosure, "")
+		// log.Info().Msg("Websocket seems to have closed?")
 	}
 }
 

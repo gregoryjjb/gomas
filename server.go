@@ -361,19 +361,6 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		return nil
 	})
 
-	get("/api/state", func(w http.ResponseWriter, r *http.Request) error {
-		state := player.State()
-
-		if state == nil {
-			return RespondJSON(w, nil)
-		}
-
-		return RespondJSON(w, map[string]any{
-			"id":         state.ID,
-			"started_at": state.StartedAt.UnixMilli(),
-		})
-	})
-
 	get("/api/config", func(w http.ResponseWriter, r *http.Request) error {
 		w.Header().Add("Content-Type", "text/toml")
 
