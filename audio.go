@@ -9,6 +9,7 @@ import (
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
+	"github.com/rs/zerolog/log"
 )
 
 const sampleRate = beep.SampleRate(48000)
@@ -67,10 +68,10 @@ func (ap *SpeakerPlayer) Play(audio io.ReadCloser) (time.Time, error) {
 	ap.streamer = streamer
 
 	if format.SampleRate != sampleRate {
-		plog.Debug().Int("from", int(format.SampleRate)).Int("to", int(sampleRate)).Msg("Resampling")
+		log.Debug().Int("from", int(format.SampleRate)).Int("to", int(sampleRate)).Msg("Resampling")
 		speaker.Play(beep.Resample(1, format.SampleRate, sampleRate, streamer))
 	} else {
-		plog.Debug().Msg("Playing directly, no resampling")
+		log.Debug().Msg("Playing directly, no resampling")
 		speaker.Play(ap.streamer)
 	}
 

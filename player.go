@@ -16,8 +16,6 @@ import (
 	"gregoryjjb/gomas/gpio"
 )
 
-var plog = log.With().Str("component", "player").Logger()
-
 type PlayerCommand string
 
 const (
@@ -159,14 +157,14 @@ func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 	pi.runOnce.Do(func() {
 		for {
 			if err := ctx.Err(); err != nil {
-				plog.Error().Err(err).Msg("Aborting player")
+				log.Error().Err(err).Msg("Aborting player")
 				pi.audio.Stop()
 				pi.audio.Close()
 				return
 			}
 
 			if err := pi.loopIteration(ch); err != nil {
-				plog.Err(err).Msg("Player loop encountered an error")
+				log.Err(err).Msg("Player loop encountered an error")
 				pi.enterIdle(false)
 			}
 
@@ -181,7 +179,7 @@ func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
 	// Handle incoming message
 	select {
 	case msg := <-ch:
-		plog.Info().Stringer("command", msg).Msg("Received message")
+		log.Info().Stringer("command", msg).Msg("Received message")
 
 		switch msg := msg.(type) {
 		case commandPlay:
@@ -222,7 +220,7 @@ func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
 		if err != nil {
 			return err
 		} else if done {
-			plog.Print("End of current show keyframes reached")
+			log.Print("End of current show keyframes reached")
 			pi.handleShowEnd()
 		}
 
@@ -292,7 +290,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 		return err
 	}
 	pi.keyframes = data.FlatKeyframes()
-	plog.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
+	log.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
 	if len(pi.keyframes) == 0 {
 		return fmt.Errorf("show %q had zero keyframes", id)
 	}
@@ -300,7 +298,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	offset := pi.config.ChannelOffset()
 
 	if offset >= len(pi.keyframes[0].States) {
-		plog.Warn().
+		log.Warn().
 			Int("channel_offset", offset).
 			Int("actual_channel_count", len(pi.keyframes[0].States)).
 			Msg("Configured channel offset will cause no keyframes to be played")
@@ -324,7 +322,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 
 	pi.state = StatePlaying
 
-	plog.Info().
+	log.Info().
 		Str("id", id).
 		Time("start_time", pi.startTime).
 		Bool("slave", !startedAt.IsZero()).
@@ -368,7 +366,7 @@ func (pi *playerInternals) handleShowEnd() {
 	pi.clearCurrentShow()
 
 	if pi.queue.Length() > 1 {
-		plog.Info().
+		log.Info().
 			Str("period", pi.config.RestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
 			Msg("Resting")
@@ -387,7 +385,7 @@ type Slaves struct {
 
 func (s *Slaves) send(u string) {
 	if _, err := http.Get(u); err != nil {
-		plog.Err(err).Msg("Failed to notify slave")
+		log.Err(err).Msg("Failed to notify slave")
 	}
 }
 
