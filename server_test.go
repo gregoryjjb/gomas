@@ -1,8 +1,9 @@
-package main
+package main_test
 
 import (
 	"context"
 	"fmt"
+	gomas "gregoryjjb/gomas"
 	"io"
 	"net/http"
 	"testing"
@@ -68,13 +69,13 @@ func waitForReady(
 	}
 }
 
-func newTestConfig(t *testing.T, flags Flags, env map[string]string, toml string) *Config {
-	fs := NewGomasMemFS()
+func newTestConfig(t *testing.T, flags gomas.Flags, env map[string]string, toml string) *gomas.Config {
+	fs := gomas.NewGomasMemFS()
 
 	require.NoError(t, fs.Mkdir("/data", 0777))
 	require.NoError(t, afero.WriteFile(fs, "/gomas.toml", []byte(toml), 0777))
 
-	c, err := NewConfig(fs, flags, func(s string) string { return env[s] })
+	c, err := gomas.NewConfig(fs, flags, func(s string) string { return env[s] })
 	require.NoError(t, err)
 
 	return c
@@ -85,7 +86,7 @@ func TestStartServer(t *testing.T) {
 	t.Cleanup(cancel)
 
 	config := newTestConfig(t,
-		Flags{},
+		gomas.Flags{},
 		map[string]string{
 			"HOST": "127.0.0.1",
 			"PORT": "1225",
@@ -93,16 +94,16 @@ func TestStartServer(t *testing.T) {
 		`data_dir = "/data"`,
 	)
 
-	fs := NewGomasMemFS()
+	fs := gomas.NewGomasMemFS()
 	fs.MkdirAll("/data/projects", 0755)
 
-	buildInfo := BuildInfo{
+	buildInfo := gomas.BuildInfo{
 		Version: "0.0.0",
 	}
-	storage := NewStorage(fs, config)
-	player := NewPlayer(ctx, config, storage, mockAudioPlayer{})
+	storage := gomas.NewStorage(fs, config)
+	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{})
 
-	go StartServer(config, buildInfo, player, storage)
+	go gomas.StartServer(config, buildInfo, player, storage)
 
 	err := waitForReady(ctx, time.Second*600, "http://localhost:1225/api/shows")
 	require.NoError(t, err)

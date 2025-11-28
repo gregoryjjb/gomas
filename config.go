@@ -266,7 +266,7 @@ func (c *Config) RestPeriod() time.Duration {
 }
 
 func (c *Config) FramesPerSecond() int {
-	return fallbackIfNil(c.toml.Load().FramesPerSecond, 120)
+	return deref(c.toml.Load().FramesPerSecond, 120)
 }
 
 func (c *Config) SpeakerBuffer() time.Duration {
@@ -283,10 +283,10 @@ func (c *Config) Slaves() []string {
 	return c.toml.Load().Slaves
 }
 
-func fallbackIfNil[T any](a *T, b T) T {
-	if a == nil {
-		return b
+func deref[T any](p *T, fallback T) T {
+	if p == nil {
+		return fallback
 	}
 
-	return *a
+	return *p
 }

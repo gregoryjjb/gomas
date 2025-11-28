@@ -15,12 +15,6 @@ import (
 
 type GetEnver func(string) string
 
-func PanicOnError(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 func init() {
 	InitializeLogger()
 }

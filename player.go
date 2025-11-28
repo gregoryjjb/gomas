@@ -16,14 +16,15 @@ import (
 	"gregoryjjb/gomas/gpio"
 )
 
-type PlayerCommand string
+// A simple command consists only of a command name with no variable information
+type simpleCommand string
 
 const (
-	CommandPlayAll PlayerCommand = "playall"
-	CommandNext    PlayerCommand = "next"
+	CommandPlayAll simpleCommand = "playall"
+	CommandNext    simpleCommand = "next"
 )
 
-func (pc PlayerCommand) String() string {
+func (pc simpleCommand) String() string {
 	return string(pc)
 }
 
@@ -96,6 +97,28 @@ func (p *Player) Next() {
 	p.commandChannel <- CommandNext
 }
 
+func (p *Player) State() string {
+	p.internals.stateMu.RLock()
+	defer p.internals.stateMu.RUnlock()
+
+	switch p.internals.state {
+	case StateIdle:
+		return "idle"
+
+	case StatePlaying:
+		return "playing"
+
+	case StateResting:
+		return "resting"
+
+	case StateDead:
+		return "dead"
+
+	default:
+		return "invalid"
+	}
+}
+
 //////////////////////////////////
 // State machine
 
@@ -105,18 +128,14 @@ type AudioPlayer interface {
 	Close()
 }
 
-type PlayerState string
+type PlayerState int32
 
 const (
-	StateIdle    = "idle"
-	StatePlaying = "playing"
-	StateResting = "resting" // Waiting in between songs
+	StateIdle PlayerState = iota
+	StatePlaying
+	StateResting // Waiting in between songs
+	StateDead
 )
-
-type SongState struct {
-	ID        string
-	StartedAt time.Time
-}
 
 type playerInternals struct {
 	storage *Storage
@@ -125,6 +144,7 @@ type playerInternals struct {
 	slaves  *Slaves
 	runOnce sync.Once
 
+	stateMu       sync.RWMutex
 	state         PlayerState
 	startTime     time.Time
 	queue         CircularList[string]
@@ -148,18 +168,28 @@ func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*p
 		config:  config,
 		audio:   audio,
 		slaves:  slaves,
-
-		state: StateIdle,
+		state:   StateIdle,
 	}, nil
 }
 
 func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 	pi.runOnce.Do(func() {
+		defer func() {
+			pi.stateMu.Lock()
+			defer pi.stateMu.Unlock()
+
+			pi.clearCurrentShow()
+			pi.clearQueue()
+			pi.state = StateDead
+			pi.audio.Stop()
+			pi.audio.Close()
+		}()
+
 		for {
+			frameStart := time.Now()
+
 			if err := ctx.Err(); err != nil {
-				log.Error().Err(err).Msg("Aborting player")
-				pi.audio.Stop()
-				pi.audio.Close()
+				log.Warn().Err(err).Msg("Aborting player due to context error")
 				return
 			}
 
@@ -169,13 +199,27 @@ func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 			}
 
 			fps := pi.config.FramesPerSecond()
-			delay := time.Second / time.Duration(fps)
-			time.Sleep(delay)
+			nextFrameTime := frameStart.Add(time.Second / time.Duration(fps))
+			delay := time.Until(nextFrameTime)
+
+			if delay <= 0 {
+				log.Warn().
+					Dur("frame_duration", time.Since(frameStart)).
+					Dur("desired_interval", time.Second/time.Duration(fps)).
+					Msg("Framerate drop")
+			} else {
+				time.Sleep(delay)
+			}
 		}
 	})
 }
 
 func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
+	// Locking the mutex on every loop iteration is very lazy and slow, but it's
+	// easy. Ideally we would lock only when reading or writing the state fields.
+	pi.stateMu.Lock()
+	defer pi.stateMu.Unlock()
+
 	// Handle incoming message
 	select {
 	case msg := <-ch:
@@ -192,7 +236,7 @@ func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
 		case commandStatic:
 			pi.enterIdle(bool(msg))
 
-		case PlayerCommand:
+		case simpleCommand:
 			switch msg {
 			case CommandPlayAll:
 				pi.clearCurrentShow()
