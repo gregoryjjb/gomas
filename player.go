@@ -12,8 +12,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-
-	"gregoryjjb/gomas/gpio"
+	"github.com/spf13/afero"
 )
 
 // A simple command consists only of a command name with no variable information
@@ -57,10 +56,10 @@ type Player struct {
 	internals      *playerInternals
 }
 
-func NewPlayer(ctx context.Context, config *Config, storage *Storage, audio AudioPlayer) *Player {
+func NewPlayer(ctx context.Context, config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO) *Player {
 	ch := make(chan PlayerMessage)
 	// go workerLoop(ch, state)
-	pi, err := newPlayerInternals(config, storage, audio)
+	pi, err := newPlayerInternals(config, storage, audio, gpio)
 	if err != nil {
 		panic(err)
 	}
@@ -137,11 +136,27 @@ const (
 	StateDead
 )
 
+// Dependencies
+
+type GPIO interface {
+	Execute([]bool)
+	SetAll(bool)
+}
+
+type PlayerStorage interface {
+	ReadShowData(name string) (ProjectData, error)
+	ReadAudio(name string) (afero.File, error)
+	ListShows() ([]string, error)
+}
+
 type playerInternals struct {
-	storage *Storage
+	// Dependencies
+	storage PlayerStorage
 	config  *Config
 	audio   AudioPlayer
 	slaves  *Slaves
+	gpio    GPIO
+
 	runOnce sync.Once
 
 	stateMu       sync.RWMutex
@@ -152,7 +167,7 @@ type playerInternals struct {
 	keyframeIndex int
 }
 
-func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*playerInternals, error) {
+func newPlayerInternals(config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO) (*playerInternals, error) {
 	slaves := &Slaves{}
 
 	for _, slaveHost := range config.Slaves() {
@@ -168,7 +183,9 @@ func newPlayerInternals(config *Config, storage *Storage, audio AudioPlayer) (*p
 		config:  config,
 		audio:   audio,
 		slaves:  slaves,
-		state:   StateIdle,
+		gpio:    gpio,
+
+		state: StateIdle,
 	}, nil
 }
 
@@ -286,8 +303,6 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 	secs := (t - bias).Seconds()
 
 	if pi.keyframeIndex >= len(pi.keyframes) {
-		// Keyframes are finished
-
 		// Wait for an additional 1 second before ending this song
 		last := pi.keyframes[len(pi.keyframes)-1]
 		elapsedBuffer := secs - last.Time
@@ -298,9 +313,7 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 
 	next := pi.keyframes[pi.keyframeIndex]
 	if next.Time <= secs {
-		if err := gpio.Execute(next.States[pi.config.ChannelOffset():]); err != nil {
-			return false, err
-		}
+		pi.gpio.Execute(next.States[pi.config.ChannelOffset():])
 		pi.keyframeIndex += 1
 	}
 
@@ -323,7 +336,7 @@ func (pi *playerInternals) enterIdle(state bool) {
 
 	pi.state = StateIdle
 
-	gpio.SetAll(state)
+	pi.gpio.SetAll(state)
 
 	pi.slaves.Static(state)
 }

@@ -103,7 +103,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		return err
 	}
 
-	player := NewPlayer(ctx, config, storage, audio)
+	player := NewPlayer(ctx, config, storage, audio, concreteGPIO{})
 
 	return StartServer(config, buildInfo, player, storage)
 }
@@ -131,4 +131,14 @@ func parseFlags(args []string) (Flags, error) {
 	}
 
 	return f, nil
+}
+
+type concreteGPIO struct {}
+
+func (c concreteGPIO) Execute(states []bool) {
+	gpio.Execute(states)
+}
+
+func (c concreteGPIO) SetAll(state bool) {
+	gpio.SetAll(state)
 }

@@ -101,7 +101,7 @@ func TestStartServer(t *testing.T) {
 		Version: "0.0.0",
 	}
 	storage := gomas.NewStorage(fs, config)
-	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{})
+	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{})
 
 	go gomas.StartServer(config, buildInfo, player, storage)
 

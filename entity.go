@@ -101,6 +101,8 @@ func (pd *ProjectData) FlatKeyframes() []FlatKeyframe {
 		kf.States[sourceKeyframe.TrackIndex] = sourceKeyframe.State
 	}
 
+	pushCurrentKeyframe(-1)
+
 	return flatKeyframes
 }
 
@@ -146,11 +148,12 @@ type LegacyState int
 
 func (state *LegacyState) UnmarshalJSON(data []byte) error {
 	asString := string(data)
-	if asString == "1" || asString == "true" {
+	switch asString {
+	case "1", "true":
 		*state = 1
-	} else if asString == "0" || asString == "false" {
+	case "0", "false":
 		*state = 0
-	} else {
+	default:
 		return fmt.Errorf("state unmarshal error: invalid input %s", asString)
 	}
 	return nil
