@@ -47,4 +47,4 @@ fi
 
 mkdir -p $GOMASDIR/dist
 
-tar -czvf $GOMASDIR/dist/gomas-$VERSION-$ARCH.tgz -C $GOMASDIR/bin/$ARCH .
+tar -czvf $GOMASDIR/dist/gomas-$ARCH.tgz -C $GOMASDIR/bin/$ARCH .

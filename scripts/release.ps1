@@ -36,5 +36,5 @@ git push origin $VERSION
 if ($LastExitCode -ne 0) { exit 1 }
 
 # Create release
-gh release create $VERSION --generate-notes --verify-tag .\dist\gomas-$VERSION-arm64.tgz .\dist\gomas-$VERSION-arm32.tgz
+gh release create $VERSION --generate-notes --verify-tag .\dist\gomas-arm64.tgz .\dist\gomas-arm32.tgz
 if ($LastExitCode -ne 0) { exit 1 }
