@@ -77,7 +77,7 @@ func TestPlayer(t *testing.T) {
 
 		assert.Equal(t, "playing", player.State())
 
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 3)
 
 		assert.Equal(t, "idle", player.State())
 

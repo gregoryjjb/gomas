@@ -331,6 +331,8 @@ func (pi *playerInternals) clearQueue() {
 }
 
 func (pi *playerInternals) enterIdle(state bool) {
+	log.Debug().Bool("idle_state", state).Msg("Entering idle")
+
 	pi.clearCurrentShow()
 	pi.clearQueue()
 
@@ -427,6 +429,10 @@ func (pi *playerInternals) handleShowEnd() {
 			Str("period", pi.config.RestPeriod().String()).
 			Str("next_up", pi.queue.PeekNext()).
 			Msg("Resting")
+
+		// Since the slaves are playing only a single song,
+		// they will enter idle and set the pins on that way
+		pi.gpio.SetAll(true)
 
 		pi.state = StateResting
 		pi.startTime = time.Now()
