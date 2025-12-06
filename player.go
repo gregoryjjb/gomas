@@ -202,77 +202,78 @@ func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
 			pi.audio.Close()
 		}()
 
+		fps := pi.config.FramesPerSecond()
+		ticker := time.NewTicker(time.Second / time.Duration(fps))
+		defer ticker.Stop()
+
 		for {
-			frameStart := time.Now()
-
-			if err := ctx.Err(); err != nil {
-				log.Warn().Err(err).Msg("Aborting player due to context error")
+			select {
+			// Context cancelled
+			case <-ctx.Done():
+				log.Info().Err(ctx.Err()).Msg("Player aborting due to context")
 				return
-			}
 
-			if err := pi.loopIteration(ch); err != nil {
-				log.Err(err).Msg("Player loop encountered an error")
-				pi.enterIdle(false)
-			}
+			// Received a command message
+			case msg := <-ch:
+				if err := pi.handleMessage(msg); err != nil {
+					log.Err(err).Stringer("command", msg).Msg("Error handling message")
+				}
 
-			fps := pi.config.FramesPerSecond()
-			nextFrameTime := frameStart.Add(time.Second / time.Duration(fps))
-			delay := time.Until(nextFrameTime)
-
-			if delay <= 0 {
-				log.Warn().
-					Dur("frame_duration", time.Since(frameStart)).
-					Dur("desired_interval", time.Second/time.Duration(fps)).
-					Msg("Framerate drop")
-			} else {
-				time.Sleep(delay)
+			// Time for a loop iteration
+			case <-ticker.C:
+				if err := pi.loopIteration(); err != nil {
+					log.Err(err).Msg("Player loop encountered an error")
+				}
 			}
 		}
 	})
 }
 
-func (pi *playerInternals) loopIteration(ch chan PlayerMessage) error {
+func (pi *playerInternals) handleMessage(msg PlayerMessage) error {
 	// Locking the mutex on every loop iteration is very lazy and slow, but it's
 	// easy. Ideally we would lock only when reading or writing the state fields.
 	pi.stateMu.Lock()
 	defer pi.stateMu.Unlock()
 
-	// Handle incoming message
-	select {
-	case msg := <-ch:
-		log.Info().Stringer("command", msg).Msg("Received message")
+	log.Info().Stringer("command", msg).Msg("Received message")
 
-		switch msg := msg.(type) {
-		case commandPlay:
+	switch msg := msg.(type) {
+	case commandPlay:
+		pi.clearCurrentShow()
+		pi.clearQueue()
+		if err := pi.playShow(msg.id, msg.startedAt); err != nil {
+			return fmt.Errorf("playShow: %w", err)
+		}
+
+	case commandStatic:
+		pi.enterIdle(bool(msg))
+
+	case simpleCommand:
+		switch msg {
+		case CommandPlayAll:
 			pi.clearCurrentShow()
 			pi.clearQueue()
-			if err := pi.playShow(msg.id, msg.startedAt); err != nil {
-				return fmt.Errorf("playShow: %w", err)
+			if err := pi.playAllShows(); err != nil {
+				return fmt.Errorf("playAllShows: %w", err)
 			}
 
-		case commandStatic:
-			pi.enterIdle(bool(msg))
-
-		case simpleCommand:
-			switch msg {
-			case CommandPlayAll:
-				pi.clearCurrentShow()
-				pi.clearQueue()
-				if err := pi.playAllShows(); err != nil {
-					return fmt.Errorf("playAllShows: %w", err)
-				}
-
-			case CommandNext:
-				if err := pi.playNextShow(); err != nil {
-					return fmt.Errorf("playNextShow: %w", err)
-				}
+		case CommandNext:
+			if err := pi.playNextShow(); err != nil {
+				return fmt.Errorf("playNextShow: %w", err)
 			}
-		default:
-			return fmt.Errorf("received invalid message: %v", msg)
 		}
 	default:
-		// Do nothing, no messages to receive
+		return fmt.Errorf("received invalid message: %v", msg)
 	}
+
+	return nil
+}
+
+func (pi *playerInternals) loopIteration() error {
+	// Locking the mutex on every loop iteration is very lazy and slow, but it's
+	// easy. Ideally we would lock only when reading or writing the state fields.
+	pi.stateMu.Lock()
+	defer pi.stateMu.Unlock()
 
 	// Handle actions required by current state
 	switch pi.state {

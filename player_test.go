@@ -6,6 +6,7 @@ import (
 	"fmt"
 	gomas "gregoryjjb/gomas"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/spf13/afero"
@@ -28,60 +29,65 @@ func TestPlayer(t *testing.T) {
 	)
 
 	t.Run("StopsWhenContextCancelled", func(t *testing.T) {
-		fs := gomas.NewGomasMemFS()
-		fs.MkdirAll("/data/projects", 0755)
+		synctest.Test(t, func(t *testing.T) {
+			fs := gomas.NewGomasMemFS()
+			fs.MkdirAll("/data/projects", 0755)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		storage := gomas.NewStorage(fs, config)
+			ctx, cancel := context.WithCancel(context.Background())
+			storage := gomas.NewStorage(fs, config)
 
-		player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{})
+			player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{})
 
-		assert.Equal(t, "idle", player.State())
+			assert.Equal(t, "idle", player.State())
 
-		cancel()
+			cancel()
 
-		// Hack: give the player loop time to catch the context cancellation
-		time.Sleep(time.Millisecond * 100)
+			synctest.Wait()
 
-		assert.Equal(t, "dead", player.State())
+			assert.Equal(t, "dead", player.State())
+		})
+
 	})
 
 	t.Run("PlaysKeyframes", func(t *testing.T) {
-		storage := fakeStorage(map[string]gomas.ProjectData{
-			"my show": gomas.ProjectData{
-				Tracks: []gomas.Track{
-					{
-						Name: "0",
-						Keyframes: []gomas.Keyframe{
-							{
-								Timestamp: 0,
-								Value:     0,
-							},
-							{
-								Timestamp: 0.5,
-								Value:     1,
+		synctest.Test(t, func(t *testing.T) {
+			storage := fakeStorage(map[string]gomas.ProjectData{
+				"my show": gomas.ProjectData{
+					Tracks: []gomas.Track{
+						{
+							Name: "0",
+							Keyframes: []gomas.Keyframe{
+								{
+									Timestamp: 0,
+									Value:     0,
+								},
+								{
+									Timestamp: 0.5,
+									Value:     1,
+								},
 							},
 						},
 					},
 				},
-			},
+			})
+
+			gpio := &collectGPIO{}
+
+			player := gomas.NewPlayer(t.Context(), config, storage, mockAudioPlayer{}, gpio)
+
+			player.Play("my show")
+
+			time.Sleep(time.Millisecond * 100)
+
+			assert.Equal(t, "playing", player.State())
+
+			time.Sleep(time.Second * 3)
+
+			assert.Equal(t, "idle", player.State())
+
+			assert.Equal(t, [][]bool{{false}, {true}}, gpio.collected)
+
 		})
-
-		gpio := &collectGPIO{}
-
-		player := gomas.NewPlayer(context.Background(), config, storage, mockAudioPlayer{}, gpio)
-
-		player.Play("my show")
-
-		time.Sleep(time.Millisecond * 100)
-
-		assert.Equal(t, "playing", player.State())
-
-		time.Sleep(time.Second * 3)
-
-		assert.Equal(t, "idle", player.State())
-
-		assert.Equal(t, [][]bool{{false}, {true}}, gpio.collected)
 	})
 }
 
