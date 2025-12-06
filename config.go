@@ -229,10 +229,6 @@ func (c *Config) Port() string {
 	return cmp.Or(c.getEnv("PORT"), "1225")
 }
 
-func (c *Config) DisableEmbed() bool {
-	return c.getEnv("GOMAS_DISABLE_EMBED") != ""
-}
-
 func (c *Config) DataDir() string {
 	return c.toml.Load().DataDir
 }

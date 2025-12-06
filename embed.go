@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
-	"os"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -13,12 +13,7 @@ import (
 //go:embed editor
 var editorEmbed embed.FS
 
-func GetEditorFS(disableEmbed bool) http.FileSystem {
-	if disableEmbed {
-		log.Debug().Msg("Reading editor files dynamically from filesystem")
-		return http.Dir("editor")
-	}
-
+func GetEditorFS() http.FileSystem {
 	log.Debug().Msg("Reading embedded editor files")
 	fsys := fs.FS(editorEmbed)
 	editorFiles, _ := fs.Sub(fsys, "editor")
@@ -27,41 +22,31 @@ func GetEditorFS(disableEmbed bool) http.FileSystem {
 
 //go:embed templates
 var templatesEmbed embed.FS
-var templates *template.Template
 
-func GetTemplates(disableEmbed bool) (*template.Template, error) {
-	// Re-parse on every request, for development
-	if disableEmbed {
-		log.Debug().Msg("Parsing templates from filesystem")
-		templateFS := os.DirFS("templates")
-		return template.ParseFS(templateFS, "*.html")
-	}
+var (
+	templates    *template.Template
+	templatesErr error
+)
 
-	// Use cached parsed
-	if templates != nil {
-		return templates, nil
-	}
-
-	log.Debug().Msg("Parsing templates from embed")
-
+var getTemplates = sync.OnceFunc(func() {
 	templateFS, _ := fs.Sub(templatesEmbed, "templates")
-	t, err := template.ParseFS(templateFS, "*.html")
-	if err != nil {
-		return nil, err
+	templates, templatesErr = template.ParseFS(templateFS, "*.html")
+
+	if templatesErr != nil {
+		log.Err(templatesErr).Msg("Templates failed to parse")
 	}
-	templates = t
-	return t, nil
+})
+
+func GetTemplates() (*template.Template, error) {
+	getTemplates()
+
+	return templates, templatesErr
 }
 
 //go:embed static
 var staticEmbed embed.FS
 
-func GetStaticFS(disableEmbed bool) (http.FileSystem, error) {
-	if disableEmbed {
-		log.Debug().Msg("Reading static files dynamically from filesystem")
-		return http.Dir("static"), nil
-	}
-
+func GetStaticFS() (http.FileSystem, error) {
 	log.Debug().Msg("Reading embedded static files")
 	fsys := fs.FS(staticEmbed)
 

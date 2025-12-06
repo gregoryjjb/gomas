@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -37,7 +38,7 @@ func getBuildInfo() BuildInfo {
 	buildTime := time.Unix(ts, 0)
 
 	return BuildInfo{
-		Version:    version,
+		Version:    cmp.Or(version, "[dev]"),
 		Time:       buildTime,
 		CommitHash: commitHash,
 	}
