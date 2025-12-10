@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/go-chi/cors v1.2.2
 	github.com/gopxl/beep v1.3.0
 	github.com/mattn/go-colorable v0.1.13
 	github.com/pelletier/go-toml/v2 v2.1.0

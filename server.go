@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/afero"
 )
@@ -108,7 +109,11 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.NoCache)
+	r.Use(middleware.Compress(5))
 	r.Use(LoggerMiddleware(&log.Logger))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173"},
+	}))
 
 	get("/", func(w http.ResponseWriter, r *http.Request) error {
 		shows, err := storage.ListShows()
@@ -251,8 +256,20 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		return storage.ExportShmr(name, w)
 	})
 
+	// GET show data in JSON format
+	get("/api/shows/{name}/data", func(w http.ResponseWriter, r *http.Request) error {
+		name := chi.URLParam(r, "name")
+
+		data, err := storage.ReadShowData(name)
+		if err != nil {
+			return fmt.Errorf("read show data: %w", err)
+		}
+
+		return RespondJSON(w, data)
+	})
+
 	// PUT single show
-	put("/api/shows/{name}", func(w http.ResponseWriter, r *http.Request) error {
+	put("/api/shows/{name}/data", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
 		if err := storage.ShowExists(name); err != nil {
 			return err
@@ -270,20 +287,8 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		return storage.WriteShowData(name, show)
 	})
 
-	// PUT rename a show
-	put("/api/rename", func(w http.ResponseWriter, r *http.Request) error {
-		from := r.URL.Query().Get("from")
-		to := r.URL.Query().Get("to")
-
-		if from == "" || to == "" {
-			return fmt.Errorf("query params 'from' and 'to' required")
-		}
-
-		return storage.RenameShow(from, to)
-	})
-
 	// GET audio file for single show
-	get("/api/audio/{name}", func(w http.ResponseWriter, r *http.Request) error {
+	get("/api/shows/{name}/audio", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
 		audio, err := storage.ReadAudio(name)
 		if err != nil {
@@ -297,6 +302,18 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 
 		http.ServeContent(w, r, audio.Name(), info.ModTime(), audio)
 		return nil
+	})
+
+	// PUT rename a show
+	put("/api/rename", func(w http.ResponseWriter, r *http.Request) error {
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+
+		if from == "" || to == "" {
+			return fmt.Errorf("query params 'from' and 'to' required")
+		}
+
+		return storage.RenameShow(from, to)
 	})
 
 	// GET Playlists
