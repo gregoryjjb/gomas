@@ -1,3 +1,15 @@
 data_dir = "data"
 
 slaves = ["http://localhost:1226"]
+
+
+[pinout]
+"Roof 1" = 1
+"Roof 2" = 2
+"Roof 3" = 3
+"Roof 4" = 4
+"Roof 5" = 5
+"Roof 6" = 6
+"Roof 7" = 7
+"Roof 8" = 8
+

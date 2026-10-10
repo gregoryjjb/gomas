@@ -54,5 +54,4 @@ GET http://127.0.0.1:1225/api/config
 PUT http://127.0.0.1:1225/api/config
 
 data_dir = "foobar"
-# channel_offset = -1
 # slaves = ["http://localhost:1226"]

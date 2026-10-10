@@ -3,45 +3,48 @@
 package gpio
 
 import (
+	"github.com/rs/zerolog/log"
 	"github.com/stianeikeland/go-rpio/v4"
 )
 
-var pinout []int
+var pins map[string]rpio.Pin
 
-var pins []rpio.Pin
+func Init(pinout map[string]int) error {
+	if len(pinout) == 0 {
+		log.Info().Msg("No GPIO pinout configured; skipping hardware initialization")
+		return nil
+	}
 
-func Init(providedPinout []int) error {
 	if err := rpio.Open(); err != nil {
 		return err
 	}
 
-	pinout = providedPinout
-
-	pins = make([]rpio.Pin, 0, len(pinout))
-	for _, p := range pinout {
-		pin := rpio.Pin(p)
+	pins = make(map[string]rpio.Pin, len(pinout))
+	for name, number := range pinout {
+		pin := rpio.Pin(number)
 		pin.Output()
 		pin.Low()
-		pins = append(pins, pin)
+		pins[name] = pin
 	}
 
 	return nil
 }
 
 func Close() error {
+	if len(pins) == 0 {
+		return nil
+	}
 	return rpio.Close()
 }
 
-func Execute(states []bool) error {
-	for i, state := range states {
-		if i >= len(pins) {
-			break
-		}
-
-		if state {
-			pins[i].High()
-		} else {
-			pins[i].Low()
+func Execute(states map[string]bool) error {
+	for name, state := range states {
+		if pin, ok := pins[name]; ok {
+			if state {
+				pin.High()
+			} else {
+				pin.Low()
+			}
 		}
 	}
 
@@ -49,9 +52,9 @@ func Execute(states []bool) error {
 }
 
 func SetAll(state bool) error {
-	states := make([]bool, len(pins))
-	for i := range states {
-		states[i] = state
+	states := make(map[string]bool, len(pins))
+	for name := range pins {
+		states[name] = state
 	}
 	return Execute(states)
 }

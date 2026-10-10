@@ -139,12 +139,12 @@ const (
 // Dependencies
 
 type GPIO interface {
-	Execute([]bool)
+	Execute(map[string]bool)
 	SetAll(bool)
 }
 
 type PlayerStorage interface {
-	ReadShowData(name string) (ProjectData, error)
+	ReadShowData(name string) (ShowData, error)
 	ReadAudio(name string) (afero.File, error)
 	ListShows() ([]string, error)
 }
@@ -159,12 +159,18 @@ type playerInternals struct {
 
 	runOnce sync.Once
 
-	stateMu       sync.RWMutex
-	state         PlayerState
-	startTime     time.Time
-	queue         CircularList[string]
-	keyframes     []FlatKeyframe
-	keyframeIndex int
+	stateMu   sync.RWMutex
+	state     PlayerState
+	startTime time.Time
+	queue     CircularList[string]
+
+	keyframes        map[string][]ShowKeyframe
+	keyframeIndex    map[string]int
+	lastKeyframeTime float64
+
+	// This is only a field here instead of a local variable
+	// so we can reuse the same memory every frame
+	gpioFrame map[string]bool
 }
 
 func newPlayerInternals(config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO) (*playerInternals, error) {
@@ -303,28 +309,38 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 	t := time.Since(pi.startTime)
 	secs := (t - bias).Seconds()
 
-	if pi.keyframeIndex >= len(pi.keyframes) {
-		// Wait for an additional 1 second before ending this song
-		last := pi.keyframes[len(pi.keyframes)-1]
-		elapsedBuffer := secs - last.Time
-		extraBuffer := 1.0
+	clear(pi.gpioFrame)
 
-		return elapsedBuffer >= extraBuffer, nil
+	for trackID, keyframes := range pi.keyframes {
+		index := pi.keyframeIndex[trackID]
+
+		if index >= len(keyframes) {
+			continue
+		}
+
+		next := keyframes[index]
+		if next.Timestamp <= secs {
+			pi.gpioFrame[trackID] = next.Value > 0
+			pi.keyframeIndex[trackID] += 1
+		}
 	}
 
-	next := pi.keyframes[pi.keyframeIndex]
-	if next.Time <= secs {
-		pi.gpio.Execute(next.States[pi.config.ChannelOffset():])
-		pi.keyframeIndex += 1
+	if len(pi.gpioFrame) > 0 {
+		pi.gpio.Execute(pi.gpioFrame)
 	}
 
-	return false, nil
+	// 1 second extra buffer before ending song
+	return secs > pi.lastKeyframeTime+1.0, nil
 }
 
 func (pi *playerInternals) clearCurrentShow() {
 	pi.audio.Stop()
 	pi.keyframes = nil
-	pi.keyframeIndex = 0
+	pi.lastKeyframeTime = 0
+
+	for k := range pi.keyframeIndex {
+		pi.keyframeIndex[k] = 0
+	}
 }
 
 func (pi *playerInternals) clearQueue() {
@@ -349,20 +365,62 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	if err != nil {
 		return err
 	}
-	pi.keyframes = data.FlatKeyframes()
+
+	pinout := pi.config.Pinout()
+
+	flat := make(map[string][]ShowKeyframe)
+	pi.lastKeyframeTime = 0
+
+	var availableTrackIDs []string
+
+	var visit func(ShowNodes)
+	visit = func(nodes ShowNodes) {
+		for _, node := range nodes {
+			switch n := node.(type) {
+			case *ShowGroup:
+				visit(n.Children)
+			case *ShowTrack:
+				if n.ID == BeatTrackID {
+					continue
+				}
+				availableTrackIDs = append(availableTrackIDs, n.ID)
+
+				if _, ok := pinout[n.ID]; ok {
+					// Track has a pinout on this device! Keep it
+					flat[n.ID] = n.Keyframes
+				}
+
+				// Include all lighting tracks in the duration, even unmapped ones.
+				if len(n.Keyframes) > 0 {
+					lastKeyframe := n.Keyframes[len(n.Keyframes)-1]
+
+					if lastKeyframe.Timestamp > pi.lastKeyframeTime {
+						pi.lastKeyframeTime = lastKeyframe.Timestamp
+					}
+				}
+			}
+		}
+	}
+	visit(data.Tracks)
+
+	pi.keyframes = flat
+	pi.keyframeIndex = make(map[string]int, len(pi.keyframes))
+	for track := range pi.keyframes {
+		pi.keyframeIndex[track] = 0
+	}
+
+	pi.gpioFrame = make(map[string]bool, len(pinout))
+
 	log.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
 	if len(pi.keyframes) == 0 {
-		return fmt.Errorf("show %q had zero keyframes", id)
-	}
 
-	offset := pi.config.ChannelOffset()
-
-	if offset >= len(pi.keyframes[0].States) {
 		log.Warn().
-			Int("channel_offset", offset).
-			Int("actual_channel_count", len(pi.keyframes[0].States)).
-			Msg("Configured channel offset will cause no keyframes to be played")
+			Str("show_id", id).
+			Strs("available_tracks", availableTrackIDs).
+			Msg("No available tracks matched the configured pinout; no GPIO events will play")
 	}
+
+	pi.gpio.SetAll(false)
 
 	if !startedAt.IsZero() {
 		pi.startTime = startedAt

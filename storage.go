@@ -2,7 +2,7 @@ package main
 
 import (
 	"archive/zip"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -58,94 +58,6 @@ func NewStorage(fs GomasFS, config *Config) *Storage {
 	}
 }
 
-func (s *Storage) Migrate() error {
-	projectEntries, err := afero.ReadDir(s.fs, "projects")
-	if err != nil {
-		return err
-	}
-	var projectFiles []string
-	for _, entry := range projectEntries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			projectFiles = append(projectFiles, entry.Name())
-		}
-	}
-
-	audioEntries, err := afero.ReadDir(s.fs, "audio")
-	if err != nil {
-		return err
-	}
-	var audioFiles []string
-	for _, entry := range audioEntries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".mp3" {
-			audioFiles = append(audioFiles, entry.Name())
-		}
-	}
-
-	for _, projectFile := range projectFiles {
-		name := strings.TrimSuffix(projectFile, filepath.Ext(projectFile))
-
-		from := filepath.Join("projects", projectFile)
-		to := filepath.Join(ShowsDir, name, DataFileName)
-
-		fmt.Printf("Migrating %q to %q\n", from, to)
-
-		f, err := s.fs.Open(from)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		
-		var legacy LegacyShow
-		if err := json.NewDecoder(f).Decode(&legacy); err != nil {
-			return err
-		}
-
-		var modern ProjectData
-		for _, track := range legacy.Tracks {
-			var newTrack Track
-
-			for _, keyframe := range track.Keyframes {
-				newTrack.Keyframes = append(newTrack.Keyframes, Keyframe{
-					Timestamp: keyframe.Time,
-					Value: float64(keyframe.State),
-					Selected: keyframe.Selected,
-				})
-			}
-
-			modern.Tracks = append(modern.Tracks, newTrack)
-		}
-
-		if err := s.fs.MkdirAll(filepath.Dir(to), 0777); err != nil {
-			return err
-		}
-		toFile, err := s.fs.Create(to)
-		if err != nil {
-			return err
-		}
-		if err := json.NewEncoder(toFile).Encode(modern); err != nil {
-			return err
-		}
-	}
-
-	for _, audioFile := range audioFiles {
-		name := strings.TrimSuffix(audioFile, filepath.Ext(audioFile))
-
-		from := filepath.Join("audio", audioFile)
-		to := filepath.Join(ShowsDir, name, AudioFileName)
-
-		fmt.Printf("Migrating %q to %q\n", from, to)
-
-		if err := s.fs.MkdirAll(filepath.Dir(to), 0777); err != nil {
-			return err
-		}
-		if err := s.fs.Rename(from, to); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 //////////////
 // Playlists
 
@@ -179,7 +91,7 @@ func (s *Storage) ListPlaylists() ([]Playlist, error) {
 	// }
 
 	var data []Playlist
-	if err := json.NewDecoder(file).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(file, &data); err != nil {
 		return nil, err
 	}
 
@@ -255,7 +167,10 @@ func (s *Storage) ShowNotExists(name string) error {
 }
 
 // CreateShow creates a new show
-func (s *Storage) CreateShow(name string, data ProjectData, audio io.Reader) error {
+func (s *Storage) CreateShow(name string, data ShowData, audio io.Reader) error {
+	if err := data.Validate(); err != nil {
+		return validationErr(err)
+	}
 	if err := s.ShowNotExists(name); err != nil {
 		return err
 	}
@@ -275,7 +190,10 @@ func (s *Storage) CreateShow(name string, data ProjectData, audio io.Reader) err
 	return nil
 }
 
-func (s *Storage) WriteShowData(name string, data ProjectData) error {
+func (s *Storage) WriteShowData(name string, data ShowData) error {
+	if err := data.Validate(); err != nil {
+		return validationErr(err)
+	}
 	if err := s.ShowExists(name); err != nil {
 		return err
 	}
@@ -286,7 +204,7 @@ func (s *Storage) WriteShowData(name string, data ProjectData) error {
 	}
 	defer f.Close()
 
-	if err := json.NewEncoder(f).Encode(data); err != nil {
+	if err := json.MarshalWrite(f, data); err != nil {
 		return err
 	}
 
@@ -311,20 +229,18 @@ func (s *Storage) WriteAudio(name string, audio io.Reader) error {
 	return f.Sync()
 }
 
-func (s *Storage) ReadShowData(name string) (ProjectData, error) {
+func (s *Storage) ReadShowData(name string) (ShowData, error) {
 	if err := s.ShowExists(name); err != nil {
-		return ProjectData{}, err
+		return ShowData{}, err
 	}
 
 	f, err := s.fs.Open(filepath.Join(ShowsDir, name, DataFileName))
 	if err != nil {
-		return ProjectData{}, err
+		return ShowData{}, err
 	}
 	defer f.Close()
 
-	var data ProjectData
-	err = json.NewDecoder(f).Decode(&data)
-	return data, err
+	return DecodeShow(f)
 }
 
 func (s *Storage) ReadAudio(name string) (afero.File, error) {
@@ -353,13 +269,9 @@ func (s *Storage) ImportShmr(file multipart.File, header *multipart.FileHeader) 
 		return err
 	}
 
-	var data ProjectData
-	if err := json.NewDecoder(dataFile).Decode(&data); err != nil {
+	data, err := DecodeShow(dataFile)
+	if err != nil {
 		return err
-	}
-
-	if data.Tracks == nil {
-		return fmt.Errorf("no tracks present")
 	}
 
 	name := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))

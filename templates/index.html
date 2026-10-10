@@ -99,7 +99,7 @@
 
       <ul class="flex flex-col gap-4 mb-12 pl-3">
         {{range .Shows}}
-        <li>
+        <li class="flex flex-row justify-between">
           <button
             class="flex items-center group text-lg"
             onclick="playShow('{{.}}')"
@@ -116,8 +116,11 @@
                 d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zM188.3 147.1c7.6-4.2 16.8-4.1 24.3 .5l144 88c7.1 4.4 11.5 12.1 11.5 20.5s-4.4 16.1-11.5 20.5l-144 88c-7.4 4.5-16.7 4.7-24.3 .5s-12.3-12.2-12.3-20.9V168c0-8.7 4.7-16.7 12.3-20.9z"
               />
             </svg>
-            <p class="break-all text-left">{{.}}</p>
+            <p class="break-all text-left flex-1">{{.}}</p>
           </button>
+          <a target="_blank" rel="noopener noreferrer" data-edit-show="{{.}}"
+            >Edit</a
+          >
         </li>
         {{end}}
       </ul>
@@ -210,6 +213,15 @@
           element.dataset.playing = element.dataset.show === id;
         });
       }
+
+      const shimmerURL = "http://localhost:5173";
+
+      document.querySelectorAll("a[data-edit-show]").forEach((el) => {
+        el.href = `${shimmerURL}/#${new URLSearchParams({
+          host: location.origin,
+          name: el.dataset.editShow,
+        }).toString()}`;
+      });
 
       // // Disabling because it's messy and untested
       // const url = "ws://" + location.host + "/ws";

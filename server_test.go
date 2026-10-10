@@ -91,11 +91,13 @@ func TestStartServer(t *testing.T) {
 			"HOST": "127.0.0.1",
 			"PORT": "1225",
 		},
-		`data_dir = "/data"`,
+		`data_dir = "/data"
+[pinout]
+"Roof 1" = 17`,
 	)
 
 	fs := gomas.NewGomasMemFS()
-	fs.MkdirAll("/data/projects", 0755)
+	require.NoError(t, fs.MkdirAll("/data/songs", 0755))
 
 	buildInfo := gomas.BuildInfo{
 		Version: "0.0.0",
@@ -107,4 +109,5 @@ func TestStartServer(t *testing.T) {
 
 	err := waitForReady(ctx, time.Second*600, "http://localhost:1225/api/shows")
 	require.NoError(t, err)
+	testShowAPI(t, storage, "http://localhost:1225")
 }

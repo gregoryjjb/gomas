@@ -2,7 +2,7 @@ package main
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -65,7 +65,7 @@ func (h HandlerWithError) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func RespondJSON(w http.ResponseWriter, body any) error {
 	w.Header().Add("Content-Type", "application/json")
-	return json.NewEncoder(w).Encode(body)
+	return json.MarshalWrite(w, body)
 }
 
 // FileServer conveniently sets up a http.FileServer handler to serve
@@ -113,6 +113,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 	r.Use(LoggerMiddleware(&log.Logger))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"http://localhost:5173"},
+		AllowedMethods: []string{"GET", "POST", "PUT"},
 	}))
 
 	get("/", func(w http.ResponseWriter, r *http.Request) error {
@@ -223,7 +224,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			return validationErr(errors.New("audio_file must be an .mp3"))
 		}
 
-		data := NewProjectData(8)
+		data := NewShowData(config.ChannelNames())
 
 		if err := storage.CreateShow(name, data, audioFile); err != nil {
 			return err
@@ -275,8 +276,8 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 			return err
 		}
 
-		var show ProjectData
-		if err := json.NewDecoder(r.Body).Decode(&show); err != nil {
+		show, err := DecodeShow(r.Body)
+		if err != nil {
 			return err
 		}
 

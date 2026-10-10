@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -34,8 +35,7 @@ type ConfigTOML struct {
 	raw string
 
 	DataDir         string                `toml:"data_dir"`
-	Pinout          []int                 `toml:"pinout"`
-	ChannelOffset   int                   `toml:"channel_offset"`
+	Pinout          map[string]int        `toml:"pinout"`
 	Bias            *DurationMarshallable `toml:"bias"`
 	RestPeriod      *DurationMarshallable `toml:"rest_period"`
 	FramesPerSecond *int                  `toml:"frames_per_second"`
@@ -128,8 +128,18 @@ func ParseToml(raw string, fs GomasFS) (*ConfigTOML, error) {
 		return nil, fmt.Errorf("data directory not found: %q", c.DataDir)
 	}
 
-	if c.ChannelOffset < 0 {
-		return nil, fmt.Errorf("channel_offset must not be negative, received: %d", c.ChannelOffset)
+	pins := make(map[int]string)
+	for name, pin := range c.Pinout {
+		if strings.TrimSpace(name) == "" || name == BeatTrackID {
+			return nil, fmt.Errorf("invalid GPIO channel name %q", name)
+		}
+		if pin < 0 || pin > 53 {
+			return nil, fmt.Errorf("channel %q: BCM pin must be between 0 and 53", name)
+		}
+		if other, ok := pins[pin]; ok {
+			return nil, fmt.Errorf("channels %q and %q share BCM pin %d", other, name, pin)
+		}
+		pins[pin] = name
 	}
 
 	return &c, nil
@@ -205,7 +215,7 @@ func (c *Config) WriteToml(s string) error {
 	if _, err := configFile.Write([]byte(s)); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	
+
 	c.toml.Store(toml)
 
 	log.Info().Str("path", c.tomlPath).Interface("config", toml).Msg("Updated TOML config")
@@ -233,12 +243,17 @@ func (c *Config) DataDir() string {
 	return c.toml.Load().DataDir
 }
 
-func (c *Config) Pinout() []int {
-	return c.toml.Load().Pinout
+func (c *Config) ChannelNames() []string {
+	names := make([]string, 0, len(c.toml.Load().Pinout))
+	for name := range c.toml.Load().Pinout {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
-func (c *Config) ChannelOffset() int {
-	return c.toml.Load().ChannelOffset
+func (c *Config) Pinout() map[string]int {
+	return c.toml.Load().Pinout
 }
 
 func (c *Config) Bias() time.Duration {

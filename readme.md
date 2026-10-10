@@ -37,12 +37,6 @@ Config is provided by placing a `gomas.toml` file in either the working director
 # Required! Path to data directory
 data_dir = "/path/to/data"
 
-# BCM pin numbering of channels; necessary to play any lights
-pinout = [1, 2, 3, 4, 5, 6, 7, 8]
-
-# Skip this many channels when mapping channels to pins; useful when this instance is responsible for playing only a subset of channels
-channel_offset = 8
-
 # How long to rest in between each song
 rest_period = "5s"
 
@@ -55,6 +49,13 @@ bias = "100ms"
 
 # Duration of audio to buffer. Playback is delayed by this amount.
 speaker_buffer = "100ms"
+
+# Track IDs mapped to BCM GPIO pin numbers (example wiring)
+# No GPIO events will play without this
+[pinout]
+"Roof 1" = 17
+"Roof 2" = 27
+"Fence 1" = 22
 ```
 
 ## Development
@@ -87,7 +88,7 @@ $env:PORT=1226; $env:GOMAS_CONFIG="gomas-slave.toml"; modd
 
 ### Dev dependencies
 
-- Go (obviously)
+- Go (1.27 or newer)
 - The requirements for [Oto](https://github.com/hajimehoshi/oto) on Linux: `apt install libasound2-dev` 
 - Docker (for cross-compiling)
 - GitHub CLI (for creating releases)

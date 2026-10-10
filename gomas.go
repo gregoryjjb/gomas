@@ -89,11 +89,6 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 
 	storage := NewStorage(fs, config)
 
-	if flags.Migrate {
-		log.Info().Msg("Migrating show directory structure")
-		return storage.Migrate()
-	}
-
 	// Initialize GPIO
 	if err := gpio.Init(config.Pinout()); err != nil {
 		return err
@@ -114,7 +109,6 @@ type Flags struct {
 	Systemd bool
 	Config  string
 	User    string
-	Migrate bool
 }
 
 func parseFlags(args []string) (Flags, error) {
@@ -125,7 +119,6 @@ func parseFlags(args []string) (Flags, error) {
 	set.BoolVar(&f.Systemd, "systemd", false, "Generate and print systemd service file")
 	set.StringVar(&f.Config, "config", "", "Path to config file")
 	set.StringVar(&f.User, "user", "pi", "User to run as for systemd")
-	set.BoolVar(&f.Migrate, "migrate", false, "Migrate from old to new dir structure")
 
 	if err := set.Parse(args); err != nil {
 		return Flags{}, err
@@ -134,9 +127,9 @@ func parseFlags(args []string) (Flags, error) {
 	return f, nil
 }
 
-type concreteGPIO struct {}
+type concreteGPIO struct{}
 
-func (c concreteGPIO) Execute(states []bool) {
+func (c concreteGPIO) Execute(states map[string]bool) {
 	gpio.Execute(states)
 }
 
