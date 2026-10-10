@@ -312,16 +312,19 @@ func (pi *playerInternals) executeKeyframe() (bool, error) {
 	clear(pi.gpioFrame)
 
 	for trackID, keyframes := range pi.keyframes {
-		index := pi.keyframeIndex[trackID]
+		for {
+			index := pi.keyframeIndex[trackID]
+			if index >= len(keyframes) {
+				break
+			}
 
-		if index >= len(keyframes) {
-			continue
-		}
-
-		next := keyframes[index]
-		if next.Timestamp <= secs {
-			pi.gpioFrame[trackID] = next.Value > 0
-			pi.keyframeIndex[trackID] += 1
+			next := &keyframes[index]
+			if next.Timestamp <= secs {
+				pi.gpioFrame[trackID] = next.Value > 0
+				pi.keyframeIndex[trackID] += 1
+			} else {
+				break
+			}
 		}
 	}
 

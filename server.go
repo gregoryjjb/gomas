@@ -90,10 +90,21 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 }
 
 func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
+	handler, err := NewServerHandler(config, buildInfo, player, storage)
+	if err != nil {
+		return err
+	}
+	address := fmt.Sprintf("%s:%s", config.Host(), config.Port())
+	log.Info().Str("listen", address).Msg("launching server")
+	return http.ListenAndServe(address, handler)
+}
+
+// NewServerHandler constructs the routes shared by production and test servers.
+func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) (http.Handler, error) {
 	// Ensure templates parse correctly
 	_, err := GetTemplates()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	r := chi.NewRouter()
@@ -400,7 +411,7 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 
 	staticFS, err := GetStaticFS()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	FileServer(r, "/", staticFS)
 
@@ -409,7 +420,5 @@ func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *S
 		return nil
 	})
 
-	address := fmt.Sprintf("%s:%s", config.Host(), config.Port())
-	log.Info().Str("listen", address).Msg("launching server")
-	return http.ListenAndServe(address, r)
+	return r, nil
 }
