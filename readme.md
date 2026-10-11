@@ -50,6 +50,10 @@ bias = "100ms"
 # Duration of audio to buffer. Playback is delayed by this amount.
 speaker_buffer = "100ms"
 
+# Masters will find slaves on the network and send them commands
+# when a show should start or stop. Default is "standalone".
+role = "standalone"
+
 # Track IDs mapped to BCM GPIO pin numbers (example wiring)
 # No GPIO events will play without this
 [pinout]
@@ -57,6 +61,10 @@ speaker_buffer = "100ms"
 "Roof 2" = 27
 "Fence 1" = 22
 ```
+
+## Linking multiple instances
+
+Set `role = "master"` on one instance and `role = "slave"` on the rest. The devices will auto-discover each other, and the master will send commands to the slaves to keep them in sync.
 
 ## Development
 

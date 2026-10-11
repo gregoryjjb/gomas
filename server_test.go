@@ -61,3 +61,14 @@ func TestServer(t *testing.T) {
 
 	testShowAPI(t, storage, server.URL)
 }
+
+func TestServerCancelledContext(t *testing.T) {
+	config := newTestConfig(t, gomas.Flags{}, map[string]string{"PORT": "0"}, "data_dir = \"/data\"")
+	fs := gomas.NewGomasMemFS()
+	storage := gomas.NewStorage(fs, config)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	// A cancelled startup must release its randomly allocated HTTP listener.
+	err := gomas.StartServer(ctx, config, gomas.BuildInfo{}, nil, storage)
+	require.ErrorIs(t, err, context.Canceled)
+}

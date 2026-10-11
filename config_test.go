@@ -34,3 +34,30 @@ func TestRejectInvalidGPIOConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscoveryRoleConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+		role   gomas.Role
+		host   string
+	}{
+		{"default", "", gomas.RoleStandalone, "127.0.0.1"},
+		{"standalone", "role = \"standalone\"", gomas.RoleStandalone, "127.0.0.1"},
+		{"master", "role = \"master\"", gomas.RoleMaster, "127.0.0.1"},
+		{"slave", "role = \"slave\"", gomas.RoleSlave, "127.0.0.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := "data_dir = \"/data\"\n" + tc.config
+			c := newTestConfig(t, gomas.Flags{}, nil, config)
+			require.Equal(t, tc.role, c.Role())
+			require.Equal(t, tc.host, c.Host())
+			c = newTestConfig(t, gomas.Flags{}, map[string]string{"HOST": "192.168.1.10"}, config)
+			require.Equal(t, "192.168.1.10", c.Host())
+		})
+	}
+	fs := gomas.NewGomasMemFS()
+	require.NoError(t, fs.MkdirAll("/data", 0755))
+	_, err := gomas.ParseToml("data_dir = \"/data\"\nrole = \"typo\"", fs)
+	require.ErrorContains(t, err, "invalid role")
+}

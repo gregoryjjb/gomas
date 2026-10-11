@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -89,14 +91,33 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-func StartServer(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
+func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
 	handler, err := NewServerHandler(config, buildInfo, player, storage)
 	if err != nil {
 		return err
 	}
-	address := fmt.Sprintf("%s:%s", config.Host(), config.Port())
-	log.Info().Str("listen", address).Msg("launching server")
-	return http.ListenAndServe(address, handler)
+	listener, err := net.Listen("tcp", net.JoinHostPort(config.Host(), config.Port()))
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	registry := &SlaveRegistry{}
+	stopDiscovery, err := registry.Start(ctx, config.Role(), listener.Addr().(*net.TCPAddr))
+	if err != nil {
+		return fmt.Errorf("start slave discovery: %w", err)
+	}
+	defer stopDiscovery()
+
+	server := &http.Server{Handler: handler}
+	stopClosing := context.AfterFunc(ctx, func() { server.Close() })
+	defer stopClosing()
+	log.Info().Str("listen", listener.Addr().String()).Msg("launching server")
+	err = server.Serve(listener)
+	if ctx.Err() != nil && errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 // NewServerHandler constructs the routes shared by production and test servers.

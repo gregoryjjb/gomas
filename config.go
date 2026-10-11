@@ -31,8 +31,18 @@ func (d *DurationMarshallable) UnmarshalText(b []byte) error {
 	return nil
 }
 
+type Role string
+
+const (
+	RoleStandalone Role = "standalone"
+	RoleMaster     Role = "master"
+	RoleSlave      Role = "slave"
+)
+
 type ConfigTOML struct {
 	raw string
+
+	Role Role `toml:"role"`
 
 	DataDir         string                `toml:"data_dir"`
 	Pinout          map[string]int        `toml:"pinout"`
@@ -114,6 +124,15 @@ func ParseToml(raw string, fs GomasFS) (*ConfigTOML, error) {
 	}
 
 	c.raw = raw
+
+	if c.Role == "" {
+		c.Role = RoleStandalone
+	}
+	switch c.Role {
+	case RoleStandalone, RoleMaster, RoleSlave:
+	default:
+		return nil, fmt.Errorf("invalid role %q: expected standalone, master, or slave", c.Role)
+	}
 
 	if c.DataDir == "" {
 		return nil, fmt.Errorf("missing required config field data_dir")
@@ -233,6 +252,10 @@ func (c *Config) ConfigPath() string {
 
 func (c *Config) Host() string {
 	return cmp.Or(c.getEnv("HOST"), "127.0.0.1")
+}
+
+func (c *Config) Role() Role {
+	return c.toml.Load().Role
 }
 
 func (c *Config) Port() string {
