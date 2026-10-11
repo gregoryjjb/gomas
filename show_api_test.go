@@ -3,6 +3,8 @@ package main_test
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -10,6 +12,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,3 +149,39 @@ type osTestFS struct{ afero.Fs }
 
 func (*osTestFS) Abs(p string) (string, error) { return filepath.Abs(p) }
 func (*osTestFS) HomeDir() (string, error)     { return os.UserHomeDir() }
+
+func TestShowDataRaw(t *testing.T) {
+	config := newTestConfig(t, gomas.Flags{}, nil, `data_dir = "/data"`)
+	fs := gomas.NewGomasMemFS()
+	require.NoError(t, fs.MkdirAll("/data/songs/test", 0755))
+	// Preserve formatting and fields the parsed representation would discard.
+	raw := []byte("{\r\n  \"tracks\": [], \"editorExtra\": true, \"version\": \"2\"\r\n}\n")
+	require.NoError(t, afero.WriteFile(fs, "/data/songs/test/data.json", raw, 0644))
+	storage := gomas.NewStorage(fs, config)
+	handler, err := gomas.NewServerHandler(config, gomas.BuildInfo{}, nil, storage)
+	require.NoError(t, err)
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/shows/test/data?raw=true", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "application/json", response.Header().Get("Content-Type"))
+	require.Equal(t, raw, response.Body.Bytes())
+	digest := sha256.Sum256(response.Body.Bytes())
+	hash, err := storage.ShowHash("test")
+	require.NoError(t, err)
+	require.Equal(t, hash, hex.EncodeToString(digest[:]))
+
+	for _, query := range []string{"", "?raw=false"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/shows/test/data"+query, nil))
+		require.Equal(t, http.StatusOK, response.Code)
+		require.JSONEq(t, `{"version":"2","tracks":[]}`, response.Body.String())
+	}
+
+	for _, path := range []string{"/api/shows/missing/data?raw=true", "/api/shows/test/data?raw=true"} {
+		require.NoError(t, fs.RemoveAll("/data/songs/test/data.json"))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusNotFound, response.Code)
+	}
+}

@@ -2,6 +2,9 @@ package main_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	gomas "gregoryjjb/gomas"
 	"maps"
@@ -41,7 +44,7 @@ func TestPlayer(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			storage := gomas.NewStorage(fs, config)
 
-			player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{})
+			player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{}, &gomas.SlaveRegistry{})
 
 			assert.Equal(t, "idle", player.State())
 
@@ -62,7 +65,7 @@ func TestPlayer(t *testing.T) {
 
 			gpio := &collectGPIO{}
 
-			player := gomas.NewPlayer(t.Context(), config, storage, mockAudioPlayer{}, gpio)
+			player := gomas.NewPlayer(t.Context(), config, storage, mockAudioPlayer{}, gpio, &gomas.SlaveRegistry{})
 
 			player.Play("my show")
 
@@ -97,6 +100,19 @@ func (f fakeStorage) ReadShowData(name string) (gomas.ShowData, error) {
 	}
 
 	return p, nil
+}
+
+func (f fakeStorage) ShowHash(name string) (string, error) {
+	show, err := f.ReadShowData(name)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(show)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(raw)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 func (f fakeStorage) ReadAudio(name string) (afero.File, error) {
@@ -140,7 +156,7 @@ func TestPlayerReadsPinoutFromConfig(t *testing.T) {
 [pinout]
 "Roof 1" = 17`)
 		gpio := &collectGPIO{}
-		player := gomas.NewPlayer(t.Context(), config, fakeStorage{"test": fixtureShow(t)}, mockAudioPlayer{}, gpio)
+		player := gomas.NewPlayer(t.Context(), config, fakeStorage{"test": fixtureShow(t)}, mockAudioPlayer{}, gpio, &gomas.SlaveRegistry{})
 		// Reassign the same physical pin before loading the show. The player
 		// should resolve the current config, not names saved in its constructor.
 		err := config.WriteToml(`data_dir = "/data"
@@ -271,7 +287,7 @@ func TestPlayerCatchUp(t *testing.T) {
 				require.NoError(t, show.Validate())
 
 				gpio := &collectGPIO{}
-				player := gomas.NewPlayer(t.Context(), config, fakeStorage{"test": show}, mockAudioPlayer{}, gpio)
+				player := gomas.NewPlayer(t.Context(), config, fakeStorage{"test": show}, mockAudioPlayer{}, gpio, &gomas.SlaveRegistry{})
 				synctest.Wait() // ensure the ticker is initialized before sending the command
 				if tc.startedAgo > 0 {
 					player.PlaySlave("test", time.Now().Add(-tc.startedAgo))

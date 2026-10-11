@@ -2,6 +2,8 @@ package main
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -150,6 +152,31 @@ func (s *Storage) ShowExists(name string) error {
 	return nil
 }
 
+// ShowHash returns the sha256 hash in hex for the
+// requested show. Missing shows return empty string.
+func (s *Storage) ShowHash(name string) (string, error) {
+	if err := ValidateShowName(name); err != nil {
+		return "", err
+	}
+
+	f, err := s.fs.Open(filepath.Join(ShowsDir, name, DataFileName))
+	if errors.Is(err, afero.ErrFileNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	contents, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+
+	local := sha256.Sum256(contents)
+	return hex.EncodeToString(local[:]), nil
+}
+
 // ShowNotExists returns an error if the named show already exists
 func (s *Storage) ShowNotExists(name string) error {
 	if err := ValidateShowName(name); err != nil {
@@ -211,6 +238,29 @@ func (s *Storage) WriteShowData(name string, data ShowData) error {
 	return f.Sync()
 }
 
+// WriteRawShowData saves data.json without parsing or re-encoding it, creating
+// the show directory if needed. The caller is responsible for validating the
+// contents and hash.
+func (s *Storage) WriteRawShowData(name string, data io.Reader) error {
+	if err := ValidateShowName(name); err != nil {
+		return err
+	}
+	dir := filepath.Join(ShowsDir, name)
+	if err := s.fs.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	f, err := s.fs.Create(filepath.Join(dir, DataFileName))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, data); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
 func (s *Storage) WriteAudio(name string, audio io.Reader) error {
 	if err := s.ShowExists(name); err != nil {
 		return err
@@ -227,6 +277,15 @@ func (s *Storage) WriteAudio(name string, audio io.Reader) error {
 	}
 
 	return f.Sync()
+}
+
+// ReadRawShowData opens the stored data.json bytes without decoding them.
+// The caller must close the returned file.
+func (s *Storage) ReadRawShowData(name string) (afero.File, error) {
+	if err := s.ShowExists(name); err != nil {
+		return nil, err
+	}
+	return s.fs.Open(filepath.Join(ShowsDir, name, DataFileName))
 }
 
 func (s *Storage) ReadShowData(name string) (ShowData, error) {

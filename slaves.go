@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/betamos/zeroconf"
 	"github.com/rs/zerolog/log"
@@ -23,10 +29,11 @@ type Slave struct {
 }
 
 // SlaveRegistry is keyed by full DNS-SD service instance name.
-// It holds discovery state only on the master. Its zero value is usable.
+// Only the master discovers peers and sends commands. Its zero value is usable.
 type SlaveRegistry struct {
-	mu     sync.RWMutex
-	slaves map[string]Slave
+	mu         sync.RWMutex
+	slaves     map[string]Slave
+	masterPort int
 }
 
 // Snapshot returns a copy of the currently discovered slaves.
@@ -39,6 +46,101 @@ func (s *SlaveRegistry) Snapshot() map[string]Slave {
 		snapshot[service] = slave
 	}
 	return snapshot
+}
+
+// Play tells every discovered slave to join the show at the master's start time.
+func (s *SlaveRegistry) Play(ctx context.Context, id, hash string, startTime time.Time) {
+	s.mu.RLock()
+	masterPort := s.masterPort
+	s.mu.RUnlock()
+	if masterPort == 0 {
+		log.Error().Msg("Cannot notify slaves before the master's HTTP listener is ready")
+		return
+	}
+	s.send(ctx, "/api/playSlave", url.Values{
+		"name":                {id},
+		"sha256":              {hash},
+		"masterPort":          {strconv.Itoa(masterPort)},
+		"slaveStartTimeMicro": {MarshalStartTime(startTime)},
+	})
+}
+
+// Static tells every discovered slave to stop playback and set its outputs.
+func (s *SlaveRegistry) Static(ctx context.Context, state bool) {
+	value := "0"
+	if state {
+		value = "1"
+	}
+	s.send(ctx, "/api/static", url.Values{"value": {value}})
+}
+
+func (s *SlaveRegistry) send(ctx context.Context, path string, query url.Values) {
+	encoded := query.Encode()
+	for service, slave := range s.Snapshot() {
+		go func() {
+			if err := sendSlaveCommand(ctx, slave, path, encoded); err != nil {
+				log.Error().Err(err).Str("service", service).Str("path", path).
+					Msg("Failed to notify slave")
+			}
+		}()
+	}
+}
+
+// Try alternative addresses only while connecting. Once connected, an HTTP
+// failure must not replay a command that the slave may already have processed.
+func sendSlaveCommand(ctx context.Context, slave Slave, path, query string) error {
+	if len(slave.Addrs) == 0 {
+		return errors.New("slave has no addresses")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			dialer := net.Dialer{Timeout: time.Second}
+			var failures []error
+			for _, addr := range slave.Addrs {
+				endpoint := netip.AddrPortFrom(addr, uint16(slave.Port)).String()
+				conn, err := dialer.DialContext(ctx, network, endpoint)
+				if err == nil {
+					return conn, nil
+				}
+				failures = append(failures, err)
+				if ctx.Err() != nil {
+					break
+				}
+			}
+			return nil, errors.Join(failures...)
+		},
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	u := url.URL{
+		Scheme:   "http",
+		Host:     netip.AddrPortFrom(slave.Addrs[0], uint16(slave.Port)).String(),
+		Path:     path,
+		RawQuery: query,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("slave returned %s", resp.Status)
+	}
+	_, err = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	return err
 }
 
 // Start enables discovery for the configured role. The returned stop function
@@ -65,6 +167,12 @@ func (s *SlaveRegistry) Start(ctx context.Context, role Role, address *net.TCPAd
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if role == RoleMaster && address != nil {
+		s.mu.Lock()
+		s.masterPort = address.Port
+		s.mu.Unlock()
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

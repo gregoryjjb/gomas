@@ -1,7 +1,5 @@
 data_dir = "data"
 
-# slaves = ["http://localhost:1226"]
-
 role = "master"
 
 [pinout]

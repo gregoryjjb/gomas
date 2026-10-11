@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -56,13 +54,10 @@ type Player struct {
 	internals      *playerInternals
 }
 
-func NewPlayer(ctx context.Context, config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO) *Player {
+func NewPlayer(ctx context.Context, config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO, slaves *SlaveRegistry) *Player {
 	ch := make(chan PlayerMessage)
 	// go workerLoop(ch, state)
-	pi, err := newPlayerInternals(config, storage, audio, gpio)
-	if err != nil {
-		panic(err)
-	}
+	pi := newPlayerInternals(ctx, config, storage, audio, gpio, slaves)
 	go pi.run(ctx, ch)
 
 	return &Player{
@@ -145,16 +140,18 @@ type GPIO interface {
 
 type PlayerStorage interface {
 	ReadShowData(name string) (ShowData, error)
+	ShowHash(name string) (string, error)
 	ReadAudio(name string) (afero.File, error)
 	ListShows() ([]string, error)
 }
 
 type playerInternals struct {
 	// Dependencies
+	ctx     context.Context
 	storage PlayerStorage
 	config  *Config
 	audio   AudioPlayer
-	slaves  *Slaves
+	slaves  *SlaveRegistry
 	gpio    GPIO
 
 	runOnce sync.Once
@@ -173,18 +170,9 @@ type playerInternals struct {
 	gpioFrame map[string]bool
 }
 
-func newPlayerInternals(config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO) (*playerInternals, error) {
-	slaves := &Slaves{}
-
-	for _, slaveHost := range config.Slaves() {
-		u, err := url.Parse(slaveHost)
-		if err != nil {
-			return nil, fmt.Errorf("invalid slave host %q in config: %w", slaveHost, err)
-		}
-		slaves.hosts = append(slaves.hosts, *u)
-	}
-
+func newPlayerInternals(ctx context.Context, config *Config, storage PlayerStorage, audio AudioPlayer, gpio GPIO, slaves *SlaveRegistry) *playerInternals {
 	return &playerInternals{
+		ctx:     ctx,
 		storage: storage,
 		config:  config,
 		audio:   audio,
@@ -192,7 +180,7 @@ func newPlayerInternals(config *Config, storage PlayerStorage, audio AudioPlayer
 		gpio:    gpio,
 
 		state: StateIdle,
-	}, nil
+	}
 }
 
 func (pi *playerInternals) run(ctx context.Context, ch chan PlayerMessage) {
@@ -360,13 +348,26 @@ func (pi *playerInternals) enterIdle(state bool) {
 
 	pi.gpio.SetAll(state)
 
-	pi.slaves.Static(state)
+	if pi.config.Role() == RoleMaster {
+		pi.slaves.Static(pi.ctx, state)
+	}
 }
 
 func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 	data, err := pi.storage.ReadShowData(id)
 	if err != nil {
 		return err
+	}
+
+	var hash string
+	if startedAt.IsZero() && pi.config.Role() == RoleMaster {
+		hash, err = pi.storage.ShowHash(id)
+		if err != nil {
+			return err
+		}
+		if hash == "" {
+			return fmt.Errorf("show %q %w", id, ErrNotExist)
+		}
 	}
 
 	pinout := pi.config.Pinout()
@@ -438,7 +439,9 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 			return err
 		}
 
-		pi.slaves.Play(id, pi.startTime)
+		if pi.config.Role() == RoleMaster {
+			pi.slaves.Play(pi.ctx, id, hash, pi.startTime)
+		}
 	}
 
 	pi.state = StatePlaying
@@ -501,47 +504,6 @@ func (pi *playerInternals) handleShowEnd() {
 	} else {
 		// No more items in queue, stop
 		pi.enterIdle(true)
-	}
-}
-
-type Slaves struct {
-	hosts []url.URL
-}
-
-func (s *Slaves) send(u string) {
-	if _, err := http.Get(u); err != nil {
-		log.Err(err).Msg("Failed to notify slave")
-	}
-}
-
-func (s *Slaves) Play(id string, startTime time.Time) {
-	for _, u := range s.hosts {
-
-		go func() {
-			q := make(url.Values)
-			q.Set("slaveStartTimeMicro", MarshalStartTime(startTime))
-
-			u.Path += "/api/play/" + id
-			u.RawQuery = q.Encode()
-
-			s.send(u.String())
-		}()
-	}
-}
-
-func (s *Slaves) Static(state bool) {
-	for _, u := range s.hosts {
-		go func() {
-			u.Path += "/api/static"
-
-			if state {
-				q := u.Query()
-				q.Add("value", "1")
-				u.RawQuery = q.Encode()
-			}
-
-			s.send(u.String())
-		}()
 	}
 }
 

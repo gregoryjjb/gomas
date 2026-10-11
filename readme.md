@@ -64,7 +64,9 @@ role = "standalone"
 
 ## Linking multiple instances
 
-Set `role = "master"` on one instance and `role = "slave"` on the rest. The devices will auto-discover each other, and the master will send commands to the slaves to keep them in sync.
+Set `role = "master"` on one instance and `role = "slave"` on the rest. The devices will auto-discover each other, and the master will send commands to the slaves to keep them in sync. Both instances must listen on a LAN address (for example, set `HOST=0.0.0.0`); slaves need to reach the master to download show data.
+
+Playback commands use `/api/playSlave` with the query parameters `name`, `sha256` (64 hex characters), `slaveStartTimeMicro` (Unix microseconds), and `masterPort` (the master's actual HTTP listening port). The slave derives the master's IP from the incoming connection. Missing or different show data is downloaded from the master using `?raw=true`, checked against the requested SHA-256 and validated before saving and playing. Matching local data plays without a download.
 
 ## Development
 
@@ -82,7 +84,7 @@ In another terminal start the CSS build in watch mode:
 npm run dev
 ```
 
-With hot reloading (this is missing the ldflags):
+With hot reloading (this is missing the ldflags). The watcher builds to a fixed path, `tmp/gomas-<PORT>.exe` (default port 1225), so Windows Firewall permissions survive rebuilds. Allow each instance on your private network when first prompted:
 
 ```sh
 modd

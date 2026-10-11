@@ -52,7 +52,7 @@ func TestServer(t *testing.T) {
 		Version: "0.0.0",
 	}
 	storage := gomas.NewStorage(fs, config)
-	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{})
+	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{}, &gomas.SlaveRegistry{})
 
 	handler, err := gomas.NewServerHandler(config, buildInfo, player, storage)
 	require.NoError(t, err)
@@ -69,6 +69,6 @@ func TestServerCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	// A cancelled startup must release its randomly allocated HTTP listener.
-	err := gomas.StartServer(ctx, config, gomas.BuildInfo{}, nil, storage)
+	err := gomas.StartServer(ctx, config, gomas.BuildInfo{}, nil, storage, &gomas.SlaveRegistry{})
 	require.ErrorIs(t, err, context.Canceled)
 }

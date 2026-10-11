@@ -1,17 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -91,7 +98,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 	})
 }
 
-func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, player *Player, storage *Storage) error {
+func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, player *Player, storage *Storage, registry *SlaveRegistry) error {
 	handler, err := NewServerHandler(config, buildInfo, player, storage)
 	if err != nil {
 		return err
@@ -102,7 +109,6 @@ func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, playe
 	}
 	defer listener.Close()
 
-	registry := &SlaveRegistry{}
 	stopDiscovery, err := registry.Start(ctx, config.Role(), listener.Addr().(*net.TCPAddr))
 	if err != nil {
 		return fmt.Errorf("start slave discovery: %w", err)
@@ -293,6 +299,17 @@ func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, stora
 	get("/api/shows/{name}/data", func(w http.ResponseWriter, r *http.Request) error {
 		name := chi.URLParam(r, "name")
 
+		if r.URL.Query().Get("raw") == "true" {
+			file, err := storage.ReadRawShowData(name)
+			if err != nil {
+				return fmt.Errorf("read raw show data: %w", err)
+			}
+			defer file.Close()
+			w.Header().Set("Content-Type", "application/json")
+			_, err = io.Copy(w, file)
+			return err
+		}
+
 		data, err := storage.ReadShowData(name)
 		if err != nil {
 			return fmt.Errorf("read show data: %w", err)
@@ -366,18 +383,88 @@ func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, stora
 			return err
 		}
 
-		startTimeStr := r.URL.Query().Get("slaveStartTimeMicro")
+		player.Play(name)
 
-		if startTimeStr != "" {
-			startTime, err := UnmarshalStartTime(startTimeStr)
-			if err != nil {
-				return fmt.Errorf("slaveStartTimeMicro present but failed to parse: %w", err)
-			}
-			player.PlaySlave(name, startTime)
-		} else {
-			player.Play(name)
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	})
+
+	get("/api/playSlave", func(w http.ResponseWriter, r *http.Request) error {
+		if config.Role() != RoleSlave {
+			return fmt.Errorf("%w: slave role required, found: %q", ErrValidation, config.Role())
 		}
 
+		query := r.URL.Query()
+		name := query.Get("name")
+		if err := ValidateShowName(name); err != nil {
+			return err
+		}
+		hash := query.Get("sha256")
+		digest, err := hex.DecodeString(hash)
+		if err != nil || len(digest) != 32 {
+			return fmt.Errorf("%w: sha256 must be a 64-character hex digest", ErrValidation)
+		}
+		hash = strings.ToLower(hash)
+
+		startTimeStr := query.Get("slaveStartTimeMicro")
+		if startTimeStr == "" {
+			return fmt.Errorf("%w: slaveStartTimeMicro is required", ErrValidation)
+		}
+		startTime, err := UnmarshalStartTime(startTimeStr)
+		if err != nil || startTime.IsZero() {
+			return fmt.Errorf("%w: slaveStartTimeMicro must be a valid Unix microsecond timestamp", ErrValidation)
+		}
+
+		masterPort, err := strconv.Atoi(query.Get("masterPort"))
+		if err != nil || masterPort < 1 || masterPort > 65535 {
+			return fmt.Errorf("%w: masterPort must be between 1 and 65535", ErrValidation)
+		}
+		remote, err := netip.ParseAddrPort(r.RemoteAddr)
+		if err != nil {
+			return fmt.Errorf("%w: invalid master remote address: %v", ErrValidation, err)
+		}
+		masterURL := url.URL{
+			Scheme: "http",
+			Host:   netip.AddrPortFrom(remote.Addr(), uint16(masterPort)).String(),
+		}
+
+		localHash, err := storage.ShowHash(name)
+		if err != nil {
+			return err
+		}
+		if localHash != hash {
+			masterURL.Path = "/api/shows/" + name + "/data"
+			masterURL.RawQuery = "raw=true"
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, masterURL.String(), nil)
+			if err != nil {
+				return err
+			}
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("download show data: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("download show data: master returned %s", resp.Status)
+			}
+			raw, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("read downloaded show data: %w", err)
+			}
+			downloadHash := sha256.Sum256(raw)
+			if !bytes.Equal(downloadHash[:], digest) {
+				return fmt.Errorf("downloaded show %q does not match the requested sha256", name)
+			}
+			if _, err := DecodeShow(bytes.NewReader(raw)); err != nil {
+				return fmt.Errorf("invalid downloaded show data: %w", err)
+			}
+			if err := storage.WriteRawShowData(name, bytes.NewReader(raw)); err != nil {
+				return fmt.Errorf("save downloaded show data: %w", err)
+			}
+		}
+
+		player.PlaySlave(name, startTime)
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	})

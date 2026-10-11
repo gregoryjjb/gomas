@@ -50,7 +50,6 @@ type ConfigTOML struct {
 	RestPeriod      *DurationMarshallable `toml:"rest_period"`
 	FramesPerSecond *int                  `toml:"frames_per_second"`
 	SpeakerBuffer   *DurationMarshallable `toml:"speaker_buffer"`
-	Slaves          []string              `toml:"slaves"`
 }
 
 const ConfigFilename = "gomas.toml"
@@ -311,10 +310,6 @@ func (c *Config) SpeakerBuffer() time.Duration {
 	}
 
 	return time.Duration(time.Millisecond * 100)
-}
-
-func (c *Config) Slaves() []string {
-	return c.toml.Load().Slaves
 }
 
 func deref[T any](p *T, fallback T) T {

@@ -99,9 +99,10 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 		return err
 	}
 
-	player := NewPlayer(ctx, config, storage, audio, concreteGPIO{})
+	registry := &SlaveRegistry{}
+	player := NewPlayer(ctx, config, storage, audio, concreteGPIO{}, registry)
 
-	return StartServer(ctx, config, buildInfo, player, storage)
+	return StartServer(ctx, config, buildInfo, player, storage, registry)
 }
 
 type Flags struct {
