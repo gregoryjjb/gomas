@@ -21,14 +21,14 @@ func TestWriteRawShowData(t *testing.T) {
 			storage := &Storage{fs: fs}
 			dir := filepath.Join(ShowsDir, "test")
 			path := filepath.Join(dir, DataFileName)
-			raw := "{\r\n  \"version\": \"2\", \"tracks\": [], \"editorExtra\": true\r\n}\n"
+			raw := "{\r\n  \"version\": \"3\", \"tracks\": {}, \"editorExtra\": true\r\n}\n"
 			require.NoError(t, storage.WriteRawShowData("test", strings.NewReader(raw)))
 			stored, err := afero.ReadFile(fs, path)
 			require.NoError(t, err)
 			require.Equal(t, raw, string(stored), "formatting and unknown fields must survive")
 
 			require.NoError(t, storage.WriteAudio("test", strings.NewReader("audio")))
-			shorter := `{"version":"2","tracks":[]}`
+			shorter := `{"version":"3","tracks":{}}`
 			require.NoError(t, storage.WriteRawShowData("test", strings.NewReader(shorter)))
 			stored, err = afero.ReadFile(fs, path)
 			require.NoError(t, err)

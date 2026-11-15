@@ -1,0 +1,55 @@
+{
+  "version": "3",
+  "tracks": {
+    "Beat": {
+      "locked": true,
+      "keyframes": [
+        {
+          "ts": 100,
+          "value": 0
+        }
+      ]
+    },
+    "Roof 2": {
+      "locked": false,
+      "keyframes": [
+        {
+          "ts": 0.5,
+          "value": 1
+        },
+        {
+          "ts": 1,
+          "value": 0
+        }
+      ]
+    },
+    "Roof 1": {
+      "locked": true,
+      "keyframes": [
+        {
+          "ts": 0,
+          "value": 1,
+          "selected": true
+        },
+        {
+          "ts": 0.5,
+          "value": 0
+        }
+      ]
+    },
+    "Roof 3": {
+      "locked": false,
+      "keyframes": []
+    },
+    "Fence 1": {
+      "locked": false,
+      "keyframes": [
+        {
+          "ts": 2,
+          "value": 0
+        }
+      ]
+    }
+  },
+  "updatedAt": "2026-11-08T12:00:00.000Z"
+}

@@ -6,48 +6,30 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 )
 
 // ShowFormatVersion is the version string stored in data.json.
-const ShowFormatVersion = "2"
+const ShowFormatVersion = "3"
 
 // BeatTrackID is reserved for editor beat markers and never drives GPIO.
 const BeatTrackID = "Beat"
 
-// ShowData is data.json in a .shmr ZIP alongside audio.mp3. The archive filename
-// supplies the show name. Unversioned shows are not supported.
+// ShowData is data.json in a .shmr ZIP alongside audio.mp3. Track names are
+// GPIO mapping keys; the editor's layout is stored separately from the show.
+// Only version 3 is supported.
 type ShowData struct {
-	Version string    `json:"version"`
-	Tracks  ShowNodes `json:"tracks"`
+	Version   string               `json:"version"`
+	UpdatedAt string               `json:"updatedAt,omitempty"`
+	Tracks    map[string]ShowTrack `json:"tracks"`
 }
 
-// ShowNode is either a *ShowTrack or *ShowGroup. IDs are globally unique names.
-type ShowNode interface{ isShowNode() }
-type ShowNodeType string
-
-const (
-	ShowNodeTrack ShowNodeType = "track"
-	ShowNodeGroup ShowNodeType = "group"
-)
-
-// ShowTrack.ID is its Shimmer name and GPIO mapping key. Locked only affects editing.
+// ShowTrack contains lighting events and editor metadata for a named channel.
+// Locked only affects editing.
 type ShowTrack struct {
-	Type      ShowNodeType   `json:"type"`
-	ID        string         `json:"id"`
 	Keyframes []ShowKeyframe `json:"keyframes"`
-	Locked    bool           `json:"locked,omitzero"`
+	Locked    bool           `json:"locked"`
 }
-
-func (*ShowTrack) isShowNode() {}
-
-// ShowGroup organizes tracks and groups without consuming a GPIO output.
-type ShowGroup struct {
-	Type     ShowNodeType `json:"type"`
-	ID       string       `json:"id"`
-	Children ShowNodes    `json:"children"`
-}
-
-func (*ShowGroup) isShowNode() {}
 
 // ShowKeyframe sets a value at a time in seconds from the start of the audio.
 // Positive values mean on. Selected is editor metadata, not playback state.
@@ -57,55 +39,6 @@ type ShowKeyframe struct {
 	Selected  bool    `json:"selected,omitzero"`
 }
 
-// ShowNodes decodes the recursive track/group union without losing children.
-type ShowNodes []ShowNode
-
-func (nodes *ShowNodes) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	var raw []jsontext.Value
-	if err := json.UnmarshalDecode(dec, &raw); err != nil {
-		return err
-	}
-	if raw == nil {
-		return fmt.Errorf("nodes must be an array, not null")
-	}
-	result := make(ShowNodes, 0, len(raw))
-	for i, value := range raw {
-		var tag struct {
-			Type ShowNodeType `json:"type"`
-		}
-		if err := json.Unmarshal(value, &tag); err != nil {
-			return fmt.Errorf("node %d: %w", i, err)
-		}
-		var node ShowNode
-		switch tag.Type {
-		case ShowNodeTrack:
-			track := &ShowTrack{}
-			if err := json.Unmarshal(value, track); err != nil {
-				return fmt.Errorf("track %d: %w", i, err)
-			}
-			if track.Keyframes == nil {
-				return fmt.Errorf("track %q: keyframes must be an array", track.ID)
-			}
-
-			node = track
-		case ShowNodeGroup:
-			group := &ShowGroup{}
-			if err := json.Unmarshal(value, group); err != nil {
-				return fmt.Errorf("group %d: %w", i, err)
-			}
-			if group.Children == nil {
-				return fmt.Errorf("group %q: children must be an array", group.ID)
-			}
-			node = group
-		default:
-			return fmt.Errorf("node %d: unsupported type %q", i, tag.Type)
-		}
-		result = append(result, node)
-	}
-	*nodes = result
-	return nil
-}
-
 func (data *ShowData) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	type plain ShowData
 	var result plain
@@ -113,7 +46,12 @@ func (data *ShowData) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 		return err
 	}
 	if result.Tracks == nil {
-		return fmt.Errorf("tracks must be an array")
+		return fmt.Errorf("tracks must be an object")
+	}
+	for name, track := range result.Tracks {
+		if track.Keyframes == nil {
+			return fmt.Errorf("track %q: keyframes must be an array", name)
+		}
 	}
 	show := ShowData(result)
 	if err := show.Validate(); err != nil {
@@ -132,65 +70,34 @@ func DecodeShow(r io.Reader) (ShowData, error) {
 	return data, nil
 }
 
-// Validate checks the format and cross-node constraints before saving or playing.
-// Nil slices in Go are valid: JSON v2 writes them as empty arrays.
+// Validate checks track names and keyframes before saving or playing.
+// Nil Go maps and slices are valid: JSON v2 writes them as {} and [].
 func (data ShowData) Validate() error {
 	if data.Version != ShowFormatVersion {
 		return fmt.Errorf("unsupported show version %q (expected %q)", data.Version, ShowFormatVersion)
 	}
-	seen := make(map[string]bool)
-	var visit func(ShowNodes) error
-	visit = func(nodes ShowNodes) error {
-		for _, node := range nodes {
-			var id string
-			switch n := node.(type) {
-			case *ShowTrack:
-				if n == nil || n.Type != ShowNodeTrack {
-					return fmt.Errorf("invalid track node")
-				}
-				id = n.ID
-				for i, kf := range n.Keyframes {
-					if math.IsNaN(kf.Timestamp) || math.IsInf(kf.Timestamp, 0) || kf.Timestamp < 0 || math.IsNaN(kf.Value) || math.IsInf(kf.Value, 0) {
-						return fmt.Errorf("track %q keyframe %d: expected nonnegative finite ts and finite value", id, i)
-					}
-					if i > 0 && kf.Timestamp < n.Keyframes[i-1].Timestamp {
-						return fmt.Errorf("track %q keyframe %d: keyframes must be in ascending order by timestamp", id, i)
-					}
-				}
-			case *ShowGroup:
-				if n == nil || n.Type != ShowNodeGroup {
-					return fmt.Errorf("invalid group node")
-				}
-				id = n.ID
-				if id == BeatTrackID {
-					return fmt.Errorf("%q is reserved for the beat track", id)
-				}
-			default:
-				return fmt.Errorf("invalid show node")
+	for name, track := range data.Tracks {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("track name must not be empty")
+		}
+		for i, kf := range track.Keyframes {
+			if math.IsNaN(kf.Timestamp) || math.IsInf(kf.Timestamp, 0) || kf.Timestamp < 0 || math.IsNaN(kf.Value) || math.IsInf(kf.Value, 0) {
+				return fmt.Errorf("track %q keyframe %d: expected nonnegative finite ts and finite value", name, i)
 			}
-			if id == "" {
-				return fmt.Errorf("node ID must not be empty")
-			}
-			if seen[id] {
-				return fmt.Errorf("duplicate node ID %q", id)
-			}
-			seen[id] = true
-			if group, ok := node.(*ShowGroup); ok {
-				if err := visit(group.Children); err != nil {
-					return err
-				}
+			if i > 0 && kf.Timestamp < track.Keyframes[i-1].Timestamp {
+				return fmt.Errorf("track %q keyframe %d: keyframes must be in ascending order by timestamp", name, i)
 			}
 		}
-		return nil
 	}
-	return visit(data.Tracks)
+	return nil
 }
 
 // NewShowData creates an editable show using the controller's configured names.
 func NewShowData(channelNames []string) ShowData {
-	nodes := ShowNodes{&ShowTrack{Type: ShowNodeTrack, ID: BeatTrackID, Locked: true}}
+	tracks := make(map[string]ShowTrack, len(channelNames)+1)
 	for _, name := range channelNames {
-		nodes = append(nodes, &ShowTrack{Type: ShowNodeTrack, ID: name})
+		tracks[name] = ShowTrack{}
 	}
-	return ShowData{Version: ShowFormatVersion, Tracks: nodes}
+	tracks[BeatTrackID] = ShowTrack{Locked: true}
+	return ShowData{Version: ShowFormatVersion, Tracks: tracks}
 }

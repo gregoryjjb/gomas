@@ -14,7 +14,7 @@ import (
 
 func fixtureShow(t *testing.T) gomas.ShowData {
 	t.Helper()
-	f, err := os.Open("testdata/show-v2.json")
+	f, err := os.Open("testdata/show-v3.json")
 	require.NoError(t, err)
 	defer f.Close()
 	data, err := gomas.DecodeShow(f)
@@ -29,48 +29,51 @@ func TestShowRoundTrip(t *testing.T) {
 	decoded, err := gomas.DecodeShow(bytes.NewReader(raw))
 	require.NoError(t, err)
 	require.Equal(t, show, decoded)
-	root := decoded.Tracks[1].(*gomas.ShowGroup)
-	track := root.Children[0].(*gomas.ShowGroup).Children[1].(*gomas.ShowTrack)
+	require.Equal(t, "2026-11-08T12:00:00.000Z", decoded.UpdatedAt)
+	track := decoded.Tracks["Roof 1"]
 	require.True(t, track.Locked)
 	require.True(t, track.Keyframes[0].Selected)
 }
 
-func TestShowEmptyArrays(t *testing.T) {
+func TestShowEmptyCollections(t *testing.T) {
 	show := gomas.NewShowData([]string{"Roof 1"})
-	show.Tracks = append(show.Tracks, &gomas.ShowGroup{Type: gomas.ShowNodeGroup, ID: "Empty"})
 	raw, err := json.Marshal(show)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "null")
+	require.NotContains(t, string(raw), "updatedAt")
 	require.Contains(t, string(raw), `"keyframes":[]`)
-	require.Contains(t, string(raw), `"children":[]`)
+	require.Contains(t, string(raw), `"locked":false`)
 	_, err = gomas.DecodeShow(bytes.NewReader(raw))
 	require.NoError(t, err)
-	raw, err = json.Marshal(gomas.ShowData{Version: "2"})
+	raw, err = json.Marshal(gomas.ShowData{Version: "3"})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"version":"2","tracks":[]}`, string(raw))
+	require.JSONEq(t, `{"version":"3","tracks":{}}`, string(raw))
+	_, err = gomas.DecodeShow(bytes.NewReader(raw))
+	require.NoError(t, err)
 }
 
 func TestRejectInvalidShow(t *testing.T) {
 	for name, raw := range map[string]string{
-		"legacy":            `{"tracks":[]}`,
-		"future version":    `{"version":"3","tracks":[]}`,
-		"numeric version":   `{"version":2,"tracks":[]}`,
-		"missing tracks":    `{"version":"2"}`,
-		"null tracks":       `{"version":"2","tracks":null}`,
-		"null node":         `{"version":"2","tracks":[null]}`,
-		"unknown node":      `{"version":"2","tracks":[{"type":"other","id":"x"}]}`,
-		"missing ID":        `{"version":"2","tracks":[{"type":"track","keyframes":[]}]}`,
-		"missing keyframes": `{"version":"2","tracks":[{"type":"track","id":"x"}]}`,
-		"null keyframes":    `{"version":"2","tracks":[{"type":"track","id":"x","keyframes":null}]}`,
-		"invalid locked":    `{"version":"2","tracks":[{"type":"track","id":"x","keyframes":[],"locked":"false"}]}`,
-		"invalid selected":  `{"version":"2","tracks":[{"type":"track","id":"x","keyframes":[{"ts":0,"value":1,"selected":1}]}]}`,
-		"missing children":  `{"version":"2","tracks":[{"type":"group","id":"x"}]}`,
-		"null children":     `{"version":"2","tracks":[{"type":"group","id":"x","children":null}]}`,
-		"negative time":     `{"version":"2","tracks":[{"type":"track","id":"x","keyframes":[{"ts":-1,"value":1}]}]}`,
-		"duplicate ID":      `{"version":"2","tracks":[{"type":"group","id":"x","children":[{"type":"track","id":"x","keyframes":[]}]}]}`,
-		"Beat group":        `{"version":"2","tracks":[{"type":"group","id":"Beat","children":[]}]}`,
-		"duplicate field":   `{"version":"2","version":"2","tracks":[]}`,
-		"trailing JSON":     `{"version":"2","tracks":[]} {}`,
+		"unversioned":       `{"tracks":[]}`,
+		"version 1":         `{"version":"1","tracks":{}}`,
+		"version 2 tree":    `{"version":"2","tracks":[{"type":"track","id":"A","keyframes":[]}]}`,
+		"version 2 map":     `{"version":"2","tracks":{}}`,
+		"future version":    `{"version":"4","tracks":{}}`,
+		"numeric version":   `{"version":3,"tracks":{}}`,
+		"missing tracks":    `{"version":"3"}`,
+		"null tracks":       `{"version":"3","tracks":null}`,
+		"array tracks":      `{"version":"3","tracks":[]}`,
+		"null track":        `{"version":"3","tracks":{"A":null}}`,
+		"empty name":        `{"version":"3","tracks":{"":{"keyframes":[]}}}`,
+		"blank name":        `{"version":"3","tracks":{"  ":{"keyframes":[]}}}`,
+		"missing keyframes": `{"version":"3","tracks":{"A":{}}}`,
+		"null keyframes":    `{"version":"3","tracks":{"A":{"keyframes":null}}}`,
+		"invalid locked":    `{"version":"3","tracks":{"A":{"keyframes":[],"locked":"false"}}}`,
+		"invalid selected":  `{"version":"3","tracks":{"A":{"keyframes":[{"ts":0,"value":1,"selected":1}]}}}`,
+		"negative time":     `{"version":"3","tracks":{"A":{"keyframes":[{"ts":-1,"value":1}]}}}`,
+		"duplicate track":   `{"version":"3","tracks":{"A":{"keyframes":[]},"A":{"keyframes":[]}}}`,
+		"duplicate field":   `{"version":"3","version":"3","tracks":{}}`,
+		"trailing JSON":     `{"version":"3","tracks":{}} {}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := gomas.DecodeShow(strings.NewReader(raw))
@@ -79,9 +82,8 @@ func TestRejectInvalidShow(t *testing.T) {
 	}
 }
 
-// Exercise local testing shows too when present, without making CI depend on
-// ignored music files. This only decodes and validates them; it does not play audio.
-func TestLocalV2Shows(t *testing.T) {
+// Exercise local shows when present without making CI depend on ignored music files.
+func TestLocalV3Shows(t *testing.T) {
 	paths, err := filepath.Glob("data/songs/*/data.json")
 	require.NoError(t, err)
 	if len(paths) == 0 {
@@ -106,10 +108,10 @@ func TestShowOptionalBooleans(t *testing.T) {
 				locked = `,"locked":` + value
 				selected = `,"selected":` + value
 			}
-			raw := `{"version":"2","tracks":[{"type":"track","id":"A"` + locked + `,"keyframes":[{"ts":0,"value":1` + selected + `}]}]}`
+			raw := `{"version":"3","tracks":{"A":{"keyframes":[{"ts":0,"value":1` + selected + `}]` + locked + `}}}`
 			show, err := gomas.DecodeShow(strings.NewReader(raw))
 			require.NoError(t, err)
-			track := show.Tracks[0].(*gomas.ShowTrack)
+			track := show.Tracks["A"]
 			require.Equal(t, value == "true", track.Locked)
 			require.Equal(t, value == "true", track.Keyframes[0].Selected)
 			encoded, err := json.Marshal(show)
@@ -118,7 +120,7 @@ func TestShowOptionalBooleans(t *testing.T) {
 				require.Contains(t, string(encoded), `"locked":true`)
 				require.Contains(t, string(encoded), `"selected":true`)
 			} else {
-				require.NotContains(t, string(encoded), `"locked"`)
+				require.Contains(t, string(encoded), `"locked":false`)
 				require.NotContains(t, string(encoded), `"selected"`)
 			}
 		})
@@ -126,30 +128,17 @@ func TestShowOptionalBooleans(t *testing.T) {
 }
 
 func TestShowIgnoresUnknownFields(t *testing.T) {
-	raw := `{
-		"version":"2", "editor":{"zoom":2},
-		"tracks":[{"type":"group","id":"Root","collapsed":true,"children":[
-			{"type":"track","id":"A","color":"red","keyframes":[
-				{"ts":1,"value":1,"easing":"linear"}
-			]}
-		]}]
-	}`
+	raw := `{"version":"3","editor":{"zoom":2},"tracks":{"A":{"color":"red","keyframes":[{"ts":1,"value":1,"easing":"linear"}]}}}`
 	show, err := gomas.DecodeShow(strings.NewReader(raw))
 	require.NoError(t, err)
-	group := show.Tracks[0].(*gomas.ShowGroup)
-	track := group.Children[0].(*gomas.ShowTrack)
-	require.Equal(t, "A", track.ID)
-	require.Equal(t, []gomas.ShowKeyframe{{Timestamp: 1, Value: 1}}, track.Keyframes)
+	require.Equal(t, []gomas.ShowKeyframe{{Timestamp: 1, Value: 1}}, show.Tracks["A"].Keyframes)
 }
 
 func TestShowKeyframeDefaults(t *testing.T) {
-	raw := `{"version":"2","tracks":[{"type":"track","id":"A","keyframes":[
-		{}, {"ts":null,"value":null}, {"value":1}, {"ts":2}
-	]}]}`
+	raw := `{"version":"3","tracks":{"A":{"keyframes":[{}, {"ts":null,"value":null}, {"value":1}, {"ts":2}]}}}`
 	show, err := gomas.DecodeShow(strings.NewReader(raw))
 	require.NoError(t, err)
-	track := show.Tracks[0].(*gomas.ShowTrack)
-	require.Equal(t, []gomas.ShowKeyframe{{}, {}, {Value: 1}, {Timestamp: 2}}, track.Keyframes)
+	require.Equal(t, []gomas.ShowKeyframe{{}, {}, {Value: 1}, {Timestamp: 2}}, show.Tracks["A"].Keyframes)
 }
 
 func TestShowKeyframeOrdering(t *testing.T) {
@@ -158,21 +147,16 @@ func TestShowKeyframeOrdering(t *testing.T) {
 		timestamps []float64
 		invalid    bool
 	}{
-		{"empty", nil, false},
-		{"zero", []float64{0}, false},
-		{"ascending", []float64{0, 1, 2}, false},
-		{"equal", []float64{0, 1, 1}, false},
-		{"descending", []float64{2, 1}, true},
-		{"middle inversion", []float64{0, 2, 1, 3}, true},
+		{"empty", nil, false}, {"zero", []float64{0}, false},
+		{"ascending", []float64{0, 1, 2}, false}, {"equal", []float64{0, 1, 1}, false},
+		{"descending", []float64{2, 1}, true}, {"middle inversion", []float64{0, 2, 1, 3}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			track := &gomas.ShowTrack{Type: gomas.ShowNodeTrack, ID: "A"}
+			track := gomas.ShowTrack{}
 			for _, ts := range tc.timestamps {
 				track.Keyframes = append(track.Keyframes, gomas.ShowKeyframe{Timestamp: ts})
 			}
-			show := gomas.ShowData{Version: "2", Tracks: gomas.ShowNodes{
-				&gomas.ShowGroup{Type: gomas.ShowNodeGroup, ID: "Root", Children: gomas.ShowNodes{track}},
-			}}
+			show := gomas.ShowData{Version: "3", Tracks: map[string]gomas.ShowTrack{"A": track}}
 			err := show.Validate()
 			if tc.invalid {
 				require.ErrorContains(t, err, "ascending order")

@@ -51,14 +51,14 @@ func testShowAPI(t *testing.T, storage *gomas.Storage, baseURL string) {
 	require.NoError(t, err)
 	res := request(http.MethodPut, "/api/shows/test/data", bytes.NewReader(raw), "application/json")
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
-	for _, invalid := range []string{`{"tracks":[]}`, `{"version":"3","tracks":[]}`, `{"version":"2","tracks":[{"type":"group","id":"lost"}]}`} {
+	for _, invalid := range []string{`{"version":"3","tracks":{}}`, `{"tracks":[]}`, `{"version":"2","tracks":[]}`, `{"version":"3","tracks":{"A":{}}}`} {
 		res = request(http.MethodPut, "/api/shows/test/data", strings.NewReader(invalid), "application/json")
 		require.Equal(t, http.StatusBadRequest, res.Code, res.Body.String())
 		unchanged, err := storage.ReadShowData("test")
 		require.NoError(t, err)
 		require.Equal(t, show, unchanged)
 	}
-	// Export and re-import preserve the entire tree, editor metadata, and audio.
+	// Export and re-import preserve the track map, editor metadata, and audio.
 	res = request(http.MethodGet, "/api/export/test", nil, "")
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	archive := append([]byte(nil), res.Body.Bytes()...)
@@ -111,13 +111,13 @@ func testShowAPI(t *testing.T, storage *gomas.Storage, baseURL string) {
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	got, err = storage.ReadShowData("new")
 	require.NoError(t, err)
-	require.Equal(t, "2", got.Version)
-	require.Equal(t, "Roof 1", got.Tracks[1].(*gomas.ShowTrack).ID)
-	require.NotNil(t, got.Tracks[1].(*gomas.ShowTrack).Keyframes)
+	require.Equal(t, "3", got.Version)
+	require.Contains(t, got.Tracks, "Roof 1")
+	require.NotNil(t, got.Tracks["Roof 1"].Keyframes)
 }
 
-func TestStorageWritesV2OnDisk(t *testing.T) {
-	// Verify v2 saves and invalid-format rejection on the host filesystem.
+func TestStorageWritesV3OnDisk(t *testing.T) {
+	// Verify v3 saves and invalid-format rejection on the host filesystem.
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "songs"), 0755))
 	cfgFS := gomas.NewGomasMemFS()
@@ -133,7 +133,7 @@ func TestStorageWritesV2OnDisk(t *testing.T) {
 	show.Version = "1"
 	require.ErrorIs(t, storage.WriteShowData("test", show), gomas.ErrValidation)
 	unordered := gomas.NewShowData([]string{"A"})
-	unordered.Tracks[1].(*gomas.ShowTrack).Keyframes = []gomas.ShowKeyframe{{Timestamp: 2}, {Timestamp: 1}}
+	unordered.Tracks["A"] = gomas.ShowTrack{Keyframes: []gomas.ShowKeyframe{{Timestamp: 2}, {Timestamp: 1}}}
 	require.ErrorIs(t, storage.WriteShowData("test", unordered), gomas.ErrValidation)
 	require.ErrorIs(t, storage.CreateShow("unordered", unordered, strings.NewReader("audio")), gomas.ErrValidation)
 	require.ErrorIs(t, storage.ShowExists("unordered"), gomas.ErrNotExist)
@@ -155,7 +155,7 @@ func TestShowDataRaw(t *testing.T) {
 	fs := gomas.NewGomasMemFS()
 	require.NoError(t, fs.MkdirAll("/data/songs/test", 0755))
 	// Preserve formatting and fields the parsed representation would discard.
-	raw := []byte("{\r\n  \"tracks\": [], \"editorExtra\": true, \"version\": \"2\"\r\n}\n")
+	raw := []byte("{\r\n  \"tracks\": {}, \"editorExtra\": true, \"version\": \"3\"\r\n}\n")
 	require.NoError(t, afero.WriteFile(fs, "/data/songs/test/data.json", raw, 0644))
 	storage := gomas.NewStorage(fs, config)
 	handler, err := gomas.NewServerHandler(config, gomas.BuildInfo{}, nil, storage)
@@ -175,7 +175,7 @@ func TestShowDataRaw(t *testing.T) {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/shows/test/data"+query, nil))
 		require.Equal(t, http.StatusOK, response.Code)
-		require.JSONEq(t, `{"version":"2","tracks":[]}`, response.Body.String())
+		require.JSONEq(t, `{"version":"3","tracks":{}}`, response.Body.String())
 	}
 
 	for _, path := range []string{"/api/shows/missing/data?raw=true", "/api/shows/test/data?raw=true"} {

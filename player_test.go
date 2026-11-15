@@ -280,9 +280,9 @@ func TestPlayerCatchUp(t *testing.T) {
 					"data_dir = \"/data\"\nframes_per_second = 10\nbias = \""+tc.bias+
 						"\"\n[pinout]\n\"Roof 1\" = 17\n\"Roof 2\" = 27\n\"Roof 3\" = 22")
 				show := gomas.NewShowData([]string{"Roof 1", "Roof 2", "Roof 3", "Unmapped"})
-				for _, node := range show.Tracks {
-					track := node.(*gomas.ShowTrack)
-					track.Keyframes = tc.tracks[track.ID]
+				for name, track := range show.Tracks {
+					track.Keyframes = tc.tracks[name]
+					show.Tracks[name] = track
 				}
 				require.NoError(t, show.Validate())
 

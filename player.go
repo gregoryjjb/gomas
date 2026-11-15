@@ -377,35 +377,23 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 
 	var availableTrackIDs []string
 
-	var visit func(ShowNodes)
-	visit = func(nodes ShowNodes) {
-		for _, node := range nodes {
-			switch n := node.(type) {
-			case *ShowGroup:
-				visit(n.Children)
-			case *ShowTrack:
-				if n.ID == BeatTrackID {
-					continue
-				}
-				availableTrackIDs = append(availableTrackIDs, n.ID)
+	for name, track := range data.Tracks {
+		if name == BeatTrackID {
+			continue
+		}
+		availableTrackIDs = append(availableTrackIDs, name)
+		if _, ok := pinout[name]; ok {
+			flat[name] = track.Keyframes
+		}
 
-				if _, ok := pinout[n.ID]; ok {
-					// Track has a pinout on this device! Keep it
-					flat[n.ID] = n.Keyframes
-				}
-
-				// Include all lighting tracks in the duration, even unmapped ones.
-				if len(n.Keyframes) > 0 {
-					lastKeyframe := n.Keyframes[len(n.Keyframes)-1]
-
-					if lastKeyframe.Timestamp > pi.lastKeyframeTime {
-						pi.lastKeyframeTime = lastKeyframe.Timestamp
-					}
-				}
+		// Include all lighting tracks in the duration, even unmapped ones.
+		if len(track.Keyframes) > 0 {
+			lastKeyframe := track.Keyframes[len(track.Keyframes)-1]
+			if lastKeyframe.Timestamp > pi.lastKeyframeTime {
+				pi.lastKeyframeTime = lastKeyframe.Timestamp
 			}
 		}
 	}
-	visit(data.Tracks)
 
 	pi.keyframes = flat
 	pi.keyframeIndex = make(map[string]int, len(pi.keyframes))

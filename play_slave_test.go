@@ -21,7 +21,7 @@ import (
 
 func TestPlaySlaveEndpoint(t *testing.T) {
 	const name = "A & B + snow"
-	const raw = `{"version":"2","tracks":[]}`
+	const raw = `{"version":"3","tracks":{}}`
 	digest := sha256.Sum256([]byte(raw))
 	hash := hex.EncodeToString(digest[:])
 	startedAt := time.UnixMicro(123456789)
@@ -100,8 +100,8 @@ func TestPlaySlaveEndpoint(t *testing.T) {
 
 func TestPlaySlaveDownload(t *testing.T) {
 	const name = "A & B + snow#one"
-	const raw = "{\r\n  \"version\": \"2\", \"tracks\": [], \"editorExtra\": true\r\n}\n"
-	const old = `{"version":"2","tracks":[]}`
+	const raw = "{\r\n  \"version\": \"3\", \"tracks\": {}, \"editorExtra\": true\r\n}\n"
+	const old = `{"version":"3","tracks":{}}`
 	startedAt := time.UnixMicro(123456789)
 	for _, tc := range []struct {
 		name          string
@@ -121,6 +121,7 @@ func TestPlaySlaveDownload(t *testing.T) {
 		{name: "wrong hash", local: old, wrongHash: true, wantDownloads: 1},
 		{name: "invalid JSON", local: old, payload: "{", wantDownloads: 1},
 		{name: "invalid format", local: old, payload: `{"version":"1","tracks":[]}`, wantDownloads: 1},
+		{name: "version 2 rejected", local: old, payload: `{"version":"2","tracks":[]}`, wantDownloads: 1},
 		{name: "master HTTP error", local: old, status: http.StatusNotFound, wantDownloads: 1},
 		{name: "incomplete download", local: old, truncated: true, wantDownloads: 1},
 		{name: "save failure", local: old, readOnly: true, wantDownloads: 1},

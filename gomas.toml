@@ -2,13 +2,15 @@ data_dir = "data"
 
 role = "master"
 
-[pinout]
-"Roof 1" = 1
-"Roof 2" = 2
-"Roof 3" = 3
-"Roof 4" = 4
-"Roof 5" = 5
-"Roof 6" = 6
-"Roof 7" = 7
-"Roof 8" = 8
+pinout = [1, 2, 3, 4, 5, 6, 7, 8]
 
+tracks = [
+  "Roof 1",
+  "Roof 2",
+  "Roof 3",
+  "Roof 4",
+  "Roof 5",
+  "Roof 6",
+  "Roof 7",
+  "Roof 8",
+]
