@@ -7,26 +7,31 @@ import (
 	"github.com/stianeikeland/go-rpio/v4"
 )
 
-var pins map[string]rpio.Pin
+var pins []rpio.Pin
+var trackPins map[string][]int
 
-func Init(pinout map[string]int) error {
+func Init(pinout []int, tracks []string) error {
+	mapping, err := mapTrackPins(pinout, tracks)
+	if err != nil {
+		return err
+	}
 	if len(pinout) == 0 {
+		pins = nil
+		trackPins = mapping
 		log.Info().Msg("No GPIO pinout configured; skipping hardware initialization")
 		return nil
 	}
-
 	if err := rpio.Open(); err != nil {
 		return err
 	}
-
-	pins = make(map[string]rpio.Pin, len(pinout))
-	for name, number := range pinout {
+	pins = make([]rpio.Pin, len(pinout))
+	for i, number := range pinout {
 		pin := rpio.Pin(number)
 		pin.Output()
 		pin.Low()
-		pins[name] = pin
+		pins[i] = pin
 	}
-
+	trackPins = mapping
 	return nil
 }
 
@@ -39,7 +44,8 @@ func Close() error {
 
 func Execute(states map[string]bool) error {
 	for name, state := range states {
-		if pin, ok := pins[name]; ok {
+		for _, number := range trackPins[name] {
+			pin := rpio.Pin(number)
 			if state {
 				pin.High()
 			} else {
@@ -47,14 +53,16 @@ func Execute(states map[string]bool) error {
 			}
 		}
 	}
-
 	return nil
 }
 
 func SetAll(state bool) error {
-	states := make(map[string]bool, len(pins))
-	for name := range pins {
-		states[name] = state
+	for _, pin := range pins {
+		if state {
+			pin.High()
+		} else {
+			pin.Low()
+		}
 	}
-	return Execute(states)
+	return nil
 }

@@ -7,26 +7,39 @@ import (
 	gomas "gregoryjjb/gomas"
 )
 
-func TestNamedGPIOConfig(t *testing.T) {
+func TestOrderedGPIOConfig(t *testing.T) {
 	c := newTestConfig(t, gomas.Flags{}, nil, `data_dir = "/data"
-[pinout]
-"Roof 2" = 27
-"Roof 1" = 17
-"Fence 1" = 22`)
-	require.Equal(t, []string{"Fence 1", "Roof 1", "Roof 2"}, c.ChannelNames())
-	require.Equal(t, map[string]int{"Fence 1": 22, "Roof 1": 17, "Roof 2": 27}, c.Pinout())
+pinout = [2, 3, 4, 17]
+tracks = ["Roof 1", "Roof 2", "Roof 1"]`)
+	require.Equal(t, []int{2, 3, 4, 17}, c.Pinout())
+	require.Equal(t, []string{"Roof 1", "Roof 2", "Roof 1"}, c.Tracks())
+	show := gomas.NewShowData(c.Tracks())
+	require.Len(t, show.Tracks, 3, "duplicate assignments still represent one show track, plus Beat")
+	require.Contains(t, show.Tracks, "Roof 1")
+	require.Contains(t, show.Tracks, "Roof 2")
+}
+
+func TestEmptyGPIOConfig(t *testing.T) {
+	for _, raw := range []string{"", "pinout = []\ntracks = []", "pinout = [2, 3]"} {
+		c := newTestConfig(t, gomas.Flags{}, nil, "data_dir = \"/data\"\n"+raw)
+		require.Empty(t, c.Tracks())
+	}
 }
 
 func TestRejectInvalidGPIOConfig(t *testing.T) {
 	fs := gomas.NewGomasMemFS()
 	require.NoError(t, fs.MkdirAll("/data", 0755))
 	for name, config := range map[string]string{
-		"old pinout":    "pinout = [17]",
-		"duplicate pin": "[pinout]\nA = 17\nB = 17",
-		"negative pin":  "[pinout]\nA = -1",
-		"invalid pin":   "[pinout]\nA = 54",
-		"beat mapping":  "[pinout]\nBeat = 17",
-		"empty name":    "[pinout]\n\"\" = 17",
+		"old pinout":               "[pinout]\nA = 17",
+		"duplicate pin":            "pinout = [17, 17]",
+		"negative pin":             "pinout = [-1]",
+		"invalid pin":              "pinout = [54]",
+		"beat mapping":             "pinout = [17]\ntracks = [\"Beat\"]",
+		"empty name":               "pinout = [17]\ntracks = [\"\"]",
+		"blank name":               "pinout = [17]\ntracks = [\"  \"]",
+		"too many tracks":          "pinout = [17]\ntracks = [\"A\", \"B\"]",
+		"too many repeated tracks": "pinout = [17]\ntracks = [\"A\", \"A\"]",
+		"tracks without pins":      "tracks = [\"A\"]",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := gomas.ParseToml("data_dir = \"/data\"\n"+config, fs)

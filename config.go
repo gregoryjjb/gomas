@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -45,7 +44,8 @@ type ConfigTOML struct {
 	Role Role `toml:"role"`
 
 	DataDir         string                `toml:"data_dir"`
-	Pinout          map[string]int        `toml:"pinout"`
+	Pinout          []int                 `toml:"pinout"`
+	Tracks          []string              `toml:"tracks"`
 	Bias            *DurationMarshallable `toml:"bias"`
 	RestPeriod      *DurationMarshallable `toml:"rest_period"`
 	FramesPerSecond *int                  `toml:"frames_per_second"`
@@ -146,18 +146,23 @@ func ParseToml(raw string, fs GomasFS) (*ConfigTOML, error) {
 		return nil, fmt.Errorf("data directory not found: %q", c.DataDir)
 	}
 
-	pins := make(map[int]string)
-	for name, pin := range c.Pinout {
-		if strings.TrimSpace(name) == "" || name == BeatTrackID {
-			return nil, fmt.Errorf("invalid GPIO channel name %q", name)
-		}
+	if len(c.Tracks) > len(c.Pinout) {
+		return nil, fmt.Errorf("tracks has %d entries but pinout only has %d pins", len(c.Tracks), len(c.Pinout))
+	}
+	pins := make(map[int]int)
+	for i, pin := range c.Pinout {
 		if pin < 0 || pin > 53 {
-			return nil, fmt.Errorf("channel %q: BCM pin must be between 0 and 53", name)
+			return nil, fmt.Errorf("pinout position %d: BCM pin must be between 0 and 53", i+1)
 		}
 		if other, ok := pins[pin]; ok {
-			return nil, fmt.Errorf("channels %q and %q share BCM pin %d", other, name, pin)
+			return nil, fmt.Errorf("pinout positions %d and %d share BCM pin %d", other+1, i+1, pin)
 		}
-		pins[pin] = name
+		pins[pin] = i
+	}
+	for _, name := range c.Tracks {
+		if strings.TrimSpace(name) == "" || name == BeatTrackID {
+			return nil, fmt.Errorf("invalid GPIO track name %q", name)
+		}
 	}
 
 	return &c, nil
@@ -265,16 +270,11 @@ func (c *Config) DataDir() string {
 	return c.toml.Load().DataDir
 }
 
-func (c *Config) ChannelNames() []string {
-	names := make([]string, 0, len(c.toml.Load().Pinout))
-	for name := range c.toml.Load().Pinout {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
+func (c *Config) Tracks() []string {
+	return c.toml.Load().Tracks
 }
 
-func (c *Config) Pinout() map[string]int {
+func (c *Config) Pinout() []int {
 	return c.toml.Load().Pinout
 }
 

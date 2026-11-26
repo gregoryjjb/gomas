@@ -2,6 +2,8 @@
 # (Usually /etc/systemd/system)
 [Unit]
 Description=Christmas lights
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple

@@ -41,8 +41,8 @@ func TestServer(t *testing.T) {
 		gomas.Flags{},
 		nil,
 		`data_dir = "/data"
-[pinout]
-"Roof 1" = 17`,
+pinout = [17]
+tracks = ["Roof 1"]`,
 	)
 
 	fs := gomas.NewGomasMemFS()

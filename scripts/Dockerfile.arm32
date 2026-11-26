@@ -1,9 +1,14 @@
 # syntax=docker/dockerfile:1
 
+FROM golang:1.27.2-bookworm AS go-toolchain
+
+# Keep Bullseye's cross-compilers and libc compatibility for the Raspberry Pi.
 FROM golang:1.21.0-bullseye
+RUN rm -rf /usr/local/go
+COPY --from=go-toolchain /usr/local/go /usr/local/go
 
 RUN apt-get update && apt-get install -y \
-    curl bzip2 \
+    bzip2 \
     gcc-arm-linux-gnueabihf \
     gcc-aarch64-linux-gnu
 

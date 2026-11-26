@@ -90,7 +90,7 @@ func run(ctx context.Context, args []string, getEnv GetEnver, fs GomasFS) error 
 	storage := NewStorage(fs, config)
 
 	// Initialize GPIO
-	if err := gpio.Init(config.Pinout()); err != nil {
+	if err := gpio.Init(config.Pinout(), config.Tracks()); err != nil {
 		return err
 	}
 

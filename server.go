@@ -262,7 +262,7 @@ func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, stora
 			return validationErr(errors.New("audio_file must be an .mp3"))
 		}
 
-		data := NewShowData(config.ChannelNames())
+		data := NewShowData(config.Tracks())
 
 		if err := storage.CreateShow(name, data, audioFile); err != nil {
 			return err

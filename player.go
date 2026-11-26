@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -370,7 +371,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 		}
 	}
 
-	pinout := pi.config.Pinout()
+	tracks := pi.config.Tracks()
 
 	flat := make(map[string][]ShowKeyframe)
 	pi.lastKeyframeTime = 0
@@ -382,7 +383,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 			continue
 		}
 		availableTrackIDs = append(availableTrackIDs, name)
-		if _, ok := pinout[name]; ok {
+		if slices.Contains(tracks, name) {
 			flat[name] = track.Keyframes
 		}
 
@@ -401,7 +402,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 		pi.keyframeIndex[track] = 0
 	}
 
-	pi.gpioFrame = make(map[string]bool, len(pinout))
+	pi.gpioFrame = make(map[string]bool, len(tracks))
 
 	log.Debug().Int("keyframe_count", len(pi.keyframes)).Msg("Loaded keyframes")
 	if len(pi.keyframes) == 0 {
@@ -409,7 +410,7 @@ func (pi *playerInternals) playShow(id string, startedAt time.Time) error {
 		log.Warn().
 			Str("show_id", id).
 			Strs("available_tracks", availableTrackIDs).
-			Msg("No available tracks matched the configured pinout; no GPIO events will play")
+			Msg("No available tracks matched the configured tracks; no GPIO events will play")
 	}
 
 	pi.gpio.SetAll(false)

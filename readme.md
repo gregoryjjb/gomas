@@ -20,7 +20,7 @@ Play shows synced to music on your Christmas lights.
 3. To daemonize with systemd:
     ```sh
     # Gomas can create its own service file
-    gomas --systemd --user="$(whoami)" > /etc/systemd/system/gomas.service
+    gomas --systemd --user="$(whoami)" | sudo tee /etc/systemd/system/gomas.service > /dev/null
     # To start on boot:
     systemctl enable gomas
     ```
@@ -54,12 +54,12 @@ speaker_buffer = "100ms"
 # when a show should start or stop. Default is "standalone".
 role = "standalone"
 
-# Track IDs mapped to BCM GPIO pin numbers (example wiring)
-# No GPIO events will play without this
-[pinout]
-"Roof 1" = 17
-"Roof 2" = 27
-"Fence 1" = 22
+# GPIO pins in logical channel order (BCM numbering).
+pinout = [2, 3, 4, 17]
+
+# tracks[i] controls pinout[i]. Repeated names drive multiple pins.
+# Fewer tracks than pins is allowed; more tracks than pins is an error.
+tracks = ["Roof 1", "Roof 2", "Roof 1"]
 ```
 
 ## Linking multiple instances

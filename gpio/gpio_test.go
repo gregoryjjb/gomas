@@ -10,13 +10,13 @@ import (
 func TestEmptyPinout(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		pinout map[string]int
+		pinout []int
 	}{
 		{"omitted", nil},
-		{"empty", map[string]int{}},
+		{"empty", []int{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := gpio.Init(tc.pinout); err != nil {
+			if err := gpio.Init(tc.pinout, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := gpio.SetAll(true); err != nil {

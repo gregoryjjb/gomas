@@ -31,9 +31,8 @@ func TestPlayer(t *testing.T) {
 			"PORT": "1225",
 		},
 		`data_dir = "/data"
-[pinout]
-"Roof 1" = 17
-"Roof 2" = 27`,
+pinout = [17, 27]
+tracks = ["Roof 1", "Roof 2"]`,
 	)
 
 	t.Run("StopsWhenContextCancelled", func(t *testing.T) {
@@ -150,18 +149,18 @@ func (c *collectGPIO) takeUpdates() ([]map[string]bool, []bool) {
 	return frames, append([]bool(nil), c.setAll...)
 }
 
-func TestPlayerReadsPinoutFromConfig(t *testing.T) {
+func TestPlayerReadsTracksFromConfig(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		config := newTestConfig(t, gomas.Flags{}, nil, `data_dir = "/data"
-[pinout]
-"Roof 1" = 17`)
+pinout = [17]
+tracks = ["Roof 1"]`)
 		gpio := &collectGPIO{}
 		player := gomas.NewPlayer(t.Context(), config, fakeStorage{"test": fixtureShow(t)}, mockAudioPlayer{}, gpio, &gomas.SlaveRegistry{})
 		// Reassign the same physical pin before loading the show. The player
 		// should resolve the current config, not names saved in its constructor.
 		err := config.WriteToml(`data_dir = "/data"
-[pinout]
-"Roof 2" = 17`)
+pinout = [17]
+tracks = ["Roof 2"]`)
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -278,7 +277,7 @@ func TestPlayerCatchUp(t *testing.T) {
 				// assert exact boundary behavior without real-time sleeps.
 				config := newTestConfig(t, gomas.Flags{}, nil,
 					"data_dir = \"/data\"\nframes_per_second = 10\nbias = \""+tc.bias+
-						"\"\n[pinout]\n\"Roof 1\" = 17\n\"Roof 2\" = 27\n\"Roof 3\" = 22")
+						"\"\npinout = [17, 27, 22]\ntracks = [\"Roof 1\", \"Roof 2\", \"Roof 3\"]")
 				show := gomas.NewShowData([]string{"Roof 1", "Roof 2", "Roof 3", "Unmapped"})
 				for name, track := range show.Tracks {
 					track.Keyframes = tc.tracks[name]

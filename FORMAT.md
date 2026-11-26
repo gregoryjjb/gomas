@@ -55,19 +55,27 @@ rejected without migration. The Go model and decoder are in
 
 ## GPIO mapping and playback
 
-The controller's TOML config maps exact channel names to BCM GPIO pin numbers:
+The controller's TOML config defines GPIO pins and track assignments separately:
 
 ```toml
-[pinout]
-"Roof 1" = 17
-"Roof 2" = 27
+pinout = [2, 3, 4, 17]
+tracks = ["Roof 1", "Roof 2", "Roof 1"]
 ```
 
-Object order does not control wiring. Each controller plays only the channels
-in its `pinout`; it can also play audio with no matching channels. Duplicate
-GPIO pin assignments and mappings for `Beat` are rejected. Channel names are
-read from config when a show is loaded. Physical GPIO pins are initialized at
-startup, so restart after changing the pinout.
+Entries pair by position: Roof 2 drives GPIO 3, while Roof 1 drives GPIO 2 and
+GPIO 4. These are BCM GPIO numbers. Track names are exact, case-sensitive show
+map keys. Show object order does not control wiring.
+
+Fewer tracks than pins is allowed, including no tracks; more tracks than pins
+is an error. Duplicate track names drive all their assigned pins. Duplicate
+GPIO pins, blank names, and mappings for `Beat` are rejected. A controller can
+play audio with no matching tracks. New shows contain each configured track
+name once, even when it is assigned to multiple pins.
+
+The hardware and simulator build the mapping during initialization. Restart
+after changing either array. All listed pins initialize low. Named playback
+events affect assigned pins; SetAll (including static and idle/rest states)
+affects every listed pin, including pins without a track assignment.
 
 All mapped channels start off. Each keyframe sets a state that persists until
 another keyframe changes it. Each tick catches up through all due keyframes,
