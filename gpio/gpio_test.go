@@ -3,8 +3,10 @@
 package gpio_test
 
 import (
-	"gregoryjjb/gomas/gpio"
+	"sync"
 	"testing"
+
+	"gregoryjjb/gomas/gpio"
 )
 
 func TestEmptyPinout(t *testing.T) {
@@ -33,4 +35,28 @@ func TestEmptyPinout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Empty pinouts exercise the hardware backend's synchronization without
+// requiring access to a Raspberry Pi's memory-mapped registers.
+func TestConcurrentEmptyPinout(t *testing.T) {
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for _, operation := range []func() error{
+		func() error { return gpio.Init(nil, nil) },
+		func() error { return gpio.Execute(map[string]bool{"unmapped": true}) },
+		func() error { return gpio.SetAll(false) },
+		gpio.Close,
+	} {
+		workers.Go(func() {
+			<-start
+			for range 100 {
+				if err := operation(); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	close(start)
+	workers.Wait()
 }

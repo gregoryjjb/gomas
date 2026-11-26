@@ -3,26 +3,34 @@
 package gpio
 
 import (
+	"sync"
+
 	"github.com/rs/zerolog/log"
 	"github.com/stianeikeland/go-rpio/v4"
 )
 
 var pins []rpio.Pin
 var trackPins map[string][]int
+var mu sync.Mutex
+var opened bool
 
 func Init(pinout []int, tracks []string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	mapping, err := mapTrackPins(pinout, tracks)
 	if err != nil {
 		return err
 	}
-	if len(pinout) == 0 {
-		pins = nil
-		trackPins = mapping
-		log.Info().Msg("No GPIO pinout configured; skipping hardware initialization")
-		return nil
+	if len(pinout) > 0 && !opened {
+		if err := rpio.Open(); err != nil {
+			return err
+		}
+		opened = true
 	}
-	if err := rpio.Open(); err != nil {
-		return err
+	// Removed pins must not remain on after a configuration change.
+	for _, pin := range pins {
+		pin.Low()
 	}
 	pins = make([]rpio.Pin, len(pinout))
 	for i, number := range pinout {
@@ -32,17 +40,30 @@ func Init(pinout []int, tracks []string) error {
 		pins[i] = pin
 	}
 	trackPins = mapping
+	if len(pinout) == 0 {
+		log.Info().Msg("No GPIO pinout configured; skipping hardware initialization")
+	}
 	return nil
 }
 
 func Close() error {
-	if len(pins) == 0 {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !opened {
 		return nil
 	}
+	// Do not let later calls access unmapped registers, even if Close fails.
+	pins = nil
+	trackPins = nil
+	opened = false
 	return rpio.Close()
 }
 
 func Execute(states map[string]bool) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	for name, state := range states {
 		for _, number := range trackPins[name] {
 			pin := rpio.Pin(number)
@@ -57,6 +78,9 @@ func Execute(states map[string]bool) error {
 }
 
 func SetAll(state bool) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	for _, pin := range pins {
 		if state {
 			pin.High()

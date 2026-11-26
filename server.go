@@ -9,6 +9,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"gregoryjjb/gomas/gpio"
 	"io"
 	"net"
 	"net/http"
@@ -512,7 +513,15 @@ func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, stora
 			return err
 		}
 
-		return config.WriteToml(string(body))
+		if err := config.WriteToml(string(body)); err != nil {
+			return fmt.Errorf("write config: %w", err)
+		}
+
+		if err := gpio.Init(config.Pinout(), config.Tracks()); err != nil {
+			return fmt.Errorf("re-init gpio: %w", err)
+		}
+
+		return nil
 	})
 
 	r.Get("/ws", createWebsocketHandler(player))

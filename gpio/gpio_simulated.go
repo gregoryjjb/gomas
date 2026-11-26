@@ -4,6 +4,7 @@ package gpio
 
 import (
 	"slices"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -11,8 +12,12 @@ import (
 var pins []int
 var trackPins map[string][]int
 var currentState map[int]bool
+var mu sync.Mutex
 
 func Init(pinout []int, tracks []string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	mapping, err := mapTrackPins(pinout, tracks)
 	if err != nil {
 		return err
@@ -45,6 +50,9 @@ func printCurrentState() {
 }
 
 func Execute(states map[string]bool) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	for name, state := range states {
 		for _, pin := range trackPins[name] {
 			currentState[pin] = state
@@ -55,6 +63,9 @@ func Execute(states map[string]bool) error {
 }
 
 func SetAll(state bool) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	for _, pin := range pins {
 		currentState[pin] = state
 	}
