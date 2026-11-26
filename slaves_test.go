@@ -17,6 +17,7 @@ import (
 
 func slaveEvent(op zeroconf.Op, name string, port uint16, ips ...string) zeroconf.Event {
 	service := zeroconf.NewService(zeroconf.NewType(slaveService), name, port)
+	service.Hostname = "test-host.local"
 	for _, ip := range ips {
 		service.Addrs = append(service.Addrs, netip.MustParseAddr(ip))
 	}
@@ -33,7 +34,10 @@ func TestSlaveRegistry(t *testing.T) {
 	registry.observe(entry)
 	snapshot := registry.Snapshot()
 	require.Len(t, snapshot, 1, "multiple IPs belong to one service")
-	require.Equal(t, Slave{Addrs: []netip.Addr{first, second}, Port: 1225}, snapshot[roof])
+	require.Equal(t, Slave{Hostname: "test-host.local", Addrs: []netip.Addr{first, second}, Port: 1225}, snapshot[roof])
+	entry.Text = []string{"hostname=lights-b"}
+	registry.observe(entry)
+	require.Equal(t, "lights-b", registry.Snapshot()[roof].Hostname)
 
 	// Neither the callback's addresses nor a snapshot may expose the live slice.
 	entry.Addrs[0] = netip.MustParseAddr("192.168.1.99")
@@ -45,7 +49,7 @@ func TestSlaveRegistry(t *testing.T) {
 	registry.observe(slaveEvent(zeroconf.OpUpdated, "roof", 1226, "::ffff:192.168.1.11", second.String()))
 	snapshot = registry.Snapshot()
 	require.Len(t, snapshot, 1)
-	require.Equal(t, Slave{Addrs: []netip.Addr{second}, Port: 1226}, snapshot[roof])
+	require.Equal(t, Slave{Hostname: "test-host.local", Addrs: []netip.Addr{second}, Port: 1226}, snapshot[roof])
 
 	registry.observe(slaveEvent(zeroconf.OpAdded, "fence", 1225, first.String()))
 	// Expiry and goodbye callbacks contain the service name but no addresses or port.

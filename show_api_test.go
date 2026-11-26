@@ -158,7 +158,7 @@ func TestShowDataRaw(t *testing.T) {
 	raw := []byte("{\r\n  \"tracks\": {}, \"editorExtra\": true, \"version\": \"3\"\r\n}\n")
 	require.NoError(t, afero.WriteFile(fs, "/data/songs/test/data.json", raw, 0644))
 	storage := gomas.NewStorage(fs, config)
-	handler, err := gomas.NewServerHandler(config, gomas.BuildInfo{}, nil, storage)
+	handler, err := gomas.NewServerHandler(config, gomas.BuildInfo{}, nil, storage, &gomas.SlaveRegistry{})
 	require.NoError(t, err)
 
 	response := httptest.NewRecorder()

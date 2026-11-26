@@ -4,7 +4,9 @@ import (
 	"context"
 	gomas "gregoryjjb/gomas"
 	"io"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -13,6 +15,32 @@ import (
 )
 
 type mockAudioPlayer struct{}
+
+func TestHTMLPages(t *testing.T) {
+	config := newTestConfig(t, gomas.Flags{}, nil, `data_dir = "/data"
+role = "master"`)
+	fs := gomas.NewGomasMemFS()
+	require.NoError(t, fs.MkdirAll("/data/songs", 0755))
+	handler, err := gomas.NewServerHandler(config, gomas.BuildInfo{}, nil, gomas.NewStorage(fs, config), &gomas.SlaveRegistry{})
+	require.NoError(t, err)
+	hostname, err := os.Hostname()
+	require.NoError(t, err)
+	for _, path := range []string{"/", "/config", "/logs"} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), "</html>")
+			if path == "/" {
+				require.Contains(t, w.Body.String(), hostname)
+				require.Contains(t, w.Body.String(), "No slaves discovered")
+			}
+			if path == "/logs" {
+				require.Contains(t, w.Body.String(), "const lines = [")
+			}
+		})
+	}
+}
 
 func (mockAudioPlayer) Play(r io.ReadCloser) (time.Time, error) {
 	return time.Now(), nil
@@ -54,7 +82,7 @@ tracks = ["Roof 1"]`,
 	storage := gomas.NewStorage(fs, config)
 	player := gomas.NewPlayer(ctx, config, storage, mockAudioPlayer{}, mockGPIO{}, &gomas.SlaveRegistry{})
 
-	handler, err := gomas.NewServerHandler(config, buildInfo, player, storage)
+	handler, err := gomas.NewServerHandler(config, buildInfo, player, storage, &gomas.SlaveRegistry{})
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)

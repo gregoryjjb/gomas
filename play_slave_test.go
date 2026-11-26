@@ -66,7 +66,7 @@ func TestPlaySlaveEndpoint(t *testing.T) {
 			require.NoError(t, storage.fs.MkdirAll(filepath.Join(ShowsDir, name), 0755))
 			require.NoError(t, afero.WriteFile(storage.fs, filepath.Join(ShowsDir, name, DataFileName), []byte(raw), 0644))
 			player := &Player{commandChannel: make(chan PlayerMessage, 1)}
-			handler, err := NewServerHandler(config, BuildInfo{}, player, storage)
+			handler, err := NewServerHandler(config, BuildInfo{}, player, storage, &SlaveRegistry{})
 			require.NoError(t, err)
 			query := url.Values{
 				"name": {name}, "sha256": {hash}, "masterPort": {"1225"},
@@ -169,7 +169,7 @@ func TestPlaySlaveDownload(t *testing.T) {
 				storage.fs = afero.NewReadOnlyFs(fs)
 			}
 			player := &Player{commandChannel: make(chan PlayerMessage, 1)}
-			handler, err := NewServerHandler(config, BuildInfo{}, player, storage)
+			handler, err := NewServerHandler(config, BuildInfo{}, player, storage, &SlaveRegistry{})
 			require.NoError(t, err)
 			query := url.Values{
 				"name": {name}, "sha256": {hash}, "masterPort": {strconv.Itoa(address.Port)},

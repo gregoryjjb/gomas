@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,8 +25,9 @@ const slaveService = "_gomas._tcp"
 
 // Slave describes the addresses and HTTP port of a discovered service.
 type Slave struct {
-	Addrs []netip.Addr
-	Port  int
+	Hostname string
+	Addrs    []netip.Addr
+	Port     int
 }
 
 // SlaveRegistry is keyed by full DNS-SD service instance name.
@@ -227,7 +229,14 @@ func (s *SlaveRegistry) observe(event zeroconf.Event) {
 		s.slaves = make(map[string]Slave)
 	}
 	// Updates replace the complete address set without changing the service key.
-	s.slaves[service] = Slave{Addrs: addrs, Port: int(event.Port)}
+	hostname := strings.TrimSuffix(event.Hostname, ".")
+	for _, field := range event.Text {
+		if value, ok := strings.CutPrefix(field, "hostname="); ok && value != "" {
+			hostname = value
+			break
+		}
+	}
+	s.slaves[service] = Slave{Hostname: hostname, Addrs: addrs, Port: int(event.Port)}
 	log.Info().Str("service", service).Msg("Slave discovery updated")
 }
 
@@ -273,6 +282,9 @@ func advertiseSlave(address *net.TCPAddr) (*zeroconf.Client, error) {
 	service := zeroconf.NewService(zeroconf.NewType(slaveService),
 		fmt.Sprintf("%s-%d", host, address.Port), uint16(address.Port))
 	service.Hostname = host + ".local"
+	if hostname, err := os.Hostname(); err == nil {
+		service.Text = []string{"hostname=" + hostname}
+	}
 	// For a wildcard HTTP listener let the library advertise each interface's
 	// own addresses. A listener bound to one IP must advertise only that IP.
 	if len(address.IP) != 0 && !address.IP.IsUnspecified() {

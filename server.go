@@ -100,7 +100,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 }
 
 func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, player *Player, storage *Storage, registry *SlaveRegistry) error {
-	handler, err := NewServerHandler(config, buildInfo, player, storage)
+	handler, err := NewServerHandler(config, buildInfo, player, storage, registry)
 	if err != nil {
 		return err
 	}
@@ -128,11 +128,15 @@ func StartServer(ctx context.Context, config *Config, buildInfo BuildInfo, playe
 }
 
 // NewServerHandler constructs the routes shared by production and test servers.
-func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, storage *Storage) (http.Handler, error) {
+func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, storage *Storage, registry *SlaveRegistry) (http.Handler, error) {
 	// Ensure templates parse correctly
 	_, err := GetTemplates()
 	if err != nil {
 		return nil, err
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("get hostname: %w", err)
 	}
 
 	r := chi.NewRouter()
@@ -167,10 +171,16 @@ func NewServerHandler(config *Config, buildInfo BuildInfo, player *Player, stora
 		}
 
 		pagedata := struct {
+			Hostname  string
+			Role      Role
+			Slaves    map[string]Slave
 			Shows     []string
 			Playlists []Playlist
 			Exist     map[string]bool
-		}{shows, playlists, make(map[string]bool)}
+		}{Hostname: hostname, Role: config.Role(), Shows: shows, Playlists: playlists, Exist: make(map[string]bool)}
+		if pagedata.Role == RoleMaster {
+			pagedata.Slaves = registry.Snapshot()
+		}
 
 		for _, show := range shows {
 			pagedata.Exist[show] = true
